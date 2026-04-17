@@ -1,0 +1,300 @@
+<div class="nsw" id="nsw-#eqLogic_id#">
+
+<!-- HEADER -->
+<div class="nsw-hdr">
+  <a href="#eqLink#" class="nsw-name" style="color:inherit;text-decoration:none;cursor:pointer;" title="Configurer cet équipement">#device_name#</a>
+  <span id="nsw-refresh-#eqLogic_id#" title="Rafraîchir" style="cursor:pointer;color:#8b9ec7;font-size:14px;">
+    <i class="fas fa-sync-alt"></i>
+  </span>
+</div>
+
+<!-- TEMPS RESTANT -->
+<div class="nsw-band">TEMPS RESTANT&nbsp;: #temps_restant_fmt#</div>
+
+<!-- CHART 7 JOURS -->
+<div class="nsw-chart">
+  <div class="nsw-ctitle">HISTORIQUE D'USAGE (7 JOURS GLISSANTS)</div>
+  <div class="nsw-cgrid">
+    <div class="nsw-yax" id="nsw-y-#eqLogic_id#"></div>
+    <div class="nsw-cols" id="nsw-c-#eqLogic_id#"></div>
+  </div>
+  <div class="nsw-legend">
+    <span class="nsw-leg"><span class="nsw-leg-line"></span>&nbsp;LIMITE</span>
+    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#22c55e;"></span>&nbsp;UTILISATION</span>
+    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#e60012;"></span>&nbsp;HORS-LIMITE</span>
+    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#cbd5e1;"></span>&nbsp;REPOS</span>
+  </div>
+</div>
+
+<!-- JOUEURS + JEUX -->
+<div class="nsw-pj" id="nsw-pj-#eqLogic_id#"></div>
+
+<!-- BOUTONS ACTIONS -->
+<div class="nsw-actions">
+  <!-- Ligne principale -->
+  <div class="nsw-row" id="nsw-row-main-#eqLogic_id#">
+    <button class="nsw-ab nsw-ab-g" id="nsw-btp-#eqLogic_id#">+ DE TEMPS</button>
+    <button class="nsw-ab nsw-ab-lock" id="nsw-block-#eqLogic_id#"></button>
+  </div>
+  <!-- Ligne sélecteur de durée (cachée par défaut) -->
+  <div class="nsw-row" id="nsw-row-time-#eqLogic_id#" style="display:none;">
+    <button class="nsw-ab nsw-ab-g2" id="nsw-b15-#eqLogic_id#">+15 min</button>
+    <button class="nsw-ab nsw-ab-g2" id="nsw-b30-#eqLogic_id#">+30 min</button>
+    <button class="nsw-ab nsw-ab-g2" id="nsw-b60-#eqLogic_id#">+1 heure</button>
+    <button class="nsw-ab nsw-ab-x"  id="nsw-bback-#eqLogic_id#">&#10005;</button>
+  </div>
+</div>
+
+<!-- CONFIG : MODE + LIMITE -->
+<div class="nsw-cfg">
+  <!-- Mode restriction -->
+  <div class="nsw-cfg-row">
+    <span class="nsw-cfg-lbl">MODE</span>
+    <div class="nsw-seg">
+      <button class="nsw-seg-btn" id="nsw-ta-#eqLogic_id#">ALERTE</button>
+      <button class="nsw-seg-btn" id="nsw-tb-#eqLogic_id#">BLOCAGE</button>
+    </div>
+  </div>
+</div>
+
+<script>
+try{(function(){
+  if(!window._nswG){
+    window._nswG=1;
+    window.nswCmd=function(id,opts){
+      if(!id||id==='0')return;
+      jeedom.cmd.execute({id:id,options:opts||{}});
+    };
+    if(!document.getElementById('nsw-css')){
+      var lnk=document.createElement('link');
+      lnk.id='nsw-css';lnk.rel='stylesheet';lnk.type='text/css';
+      lnk.href='plugins/jeeninswi/desktop/css/jeeninswi.css?v=20260416f';
+      document.head.appendChild(lnk);
+    }
+  }
+
+  var EQ='#eqLogic_id#';
+  if(!EQ||EQ.indexOf('#')!==-1)return;
+
+  var limite='#temps_limite#';
+  var mode=#mode_restriction#;
+  var tl=#timeline_json#;
+  var games=#historique_js#;
+  var joueurs=#joueurs_js#;
+
+  /* ── Rafraîchir ─────────────────────────────────────────────────────── */
+  (function(){
+    var btn=document.getElementById('nsw-refresh-'+EQ);
+    if(!btn||'#cmd_refresh_id#'==='0')return;
+    btn.addEventListener('click',function(){
+      var ico=btn.querySelector('i');
+      if(ico)ico.style.cssText='animation:nsw-spin 1s linear infinite;display:inline-block;';
+      jeedom.cmd.execute({
+        id:'#cmd_refresh_id#',
+        success:function(){if(ico)ico.style.cssText='';},
+        error:  function(){if(ico)ico.style.cssText='';}
+      });
+    });
+  })();
+
+  /* ── Chart 7 jours ──────────────────────────────────────────────────── */
+  (function(){
+    var ROWS=12;
+    var DFULL=['Dim.','Lun.','Mar.','Mer.','Jeu.','Ven.','Sam.'];
+    var today=new Date();today.setHours(0,0,0,0);
+    var days=[];
+    for(var i=6;i>=0;i--){
+      var d=new Date(today);d.setDate(d.getDate()-i);
+      var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+      days.push({key:k,dow:d.getDay(),isToday:i===0});
+    }
+    var byDate={};
+    if(Array.isArray(tl))tl.forEach(function(s){if(s.date)byDate[s.date]=parseInt(s.minutes)||0;});
+    var maxPlayed=0;
+    days.forEach(function(d){maxPlayed=Math.max(maxPlayed,byDate[d.key]||0);});
+    var ref=parseInt(limite)>0?parseInt(limite):120;
+    var chartMax=Math.max(ref,maxPlayed+30,60);
+    var step=chartMax<=120?30:chartMax<=240?60:120;
+    chartMax=Math.ceil(chartMax/step)*step;
+    var minPerRow=chartMax/ROWS;
+
+    function fmtLbl(m){
+      if(m<=0)return '0';
+      var h=Math.floor(m/60),mm=Math.round(m%60);
+      if(mm===0)return h+'h';
+      if(h===0)return mm+'m';
+      return h+'h'+mm;
+    }
+
+    var yEl=document.getElementById('nsw-y-'+EQ);
+    if(!yEl)return;
+    var yHtml='';
+    for(var r=0;r<ROWS;r++){
+      var topMin=chartMax-(r*minPerRow);
+      var lbl=(r%3===0)?fmtLbl(topMin):'';
+      yHtml+='<div class="nsw-ycell">'+lbl+'</div>';
+    }
+    yHtml+='<div style="height:18px;"></div>';
+    yEl.innerHTML=yHtml;
+
+    var cEl=document.getElementById('nsw-c-'+EQ);
+    if(!cEl)return;
+    var cHtml='';
+    days.forEach(function(day){
+      var played=byDate[day.key]||0;
+      var lbl=day.isToday?'AUJOURD\'HUI':DFULL[day.dow];
+      cHtml+='<div class="nsw-dcol'+(day.isToday?' is-today':'')+'">';
+      for(var r=0;r<ROWS;r++){
+        var blockTop=chartMax-r*minPerRow;
+        var blockBot=chartMax-(r+1)*minPerRow;
+        var cls;
+        if(played>=blockTop||(played>blockBot)){
+          cls=(parseInt(limite)>0&&blockBot>=parseInt(limite))?'b-over':'b-ok';
+        }else{
+          cls='b-empty';
+        }
+        var atLimit=(parseInt(limite)>0&&blockTop>=parseInt(limite)&&blockBot<parseInt(limite));
+        cHtml+='<div class="nsw-block '+cls+(atLimit?' b-limit':'')+'"></div>';
+      }
+      cHtml+='<div class="nsw-dlbl">'+lbl+'</div>';
+      cHtml+='</div>';
+    });
+    cEl.innerHTML=cHtml;
+  })();
+
+  /* ── Joueurs + Jeux (2 colonnes) ────────────────────────────────────── */
+  (function(){
+    var el=document.getElementById('nsw-pj-'+EQ);
+    if(!el)return;
+    function fmtMin(m){
+      var h=Math.floor(m/60),mm=m%60;
+      if(h>0&&mm>0)return h+'h'+('0'+mm).slice(-2);
+      if(h>0)return h+'h';
+      return mm+'m';
+    }
+    /* --- Colonne joueurs --- */
+    var colJ='<div class="nsw-pj-col">';
+    colJ+='<div class="nsw-pj-title">JOUEURS</div>';
+    if(Array.isArray(joueurs)&&joueurs.length>0){
+      joueurs.forEach(function(p){
+        if(!p.title)return;
+        var min=parseInt(p.minutes)||0;
+        colJ+='<div class="nsw-pj-row">';
+        if(p.image){
+          colJ+='<img class="nsw-pj-img" src="'+p.image+'" alt="" onerror="this.style.display=\'none\'">';
+        }else{
+          colJ+='<span class="nsw-pj-img nsw-pj-ph">\uD83D\uDC64</span>';
+        }
+        colJ+='<div class="nsw-pj-name">'+p.title+'</div>';
+        colJ+='<span class="nsw-pj-time">'+fmtMin(min)+'</span>';
+        colJ+='</div>';
+      });
+    }else{
+      colJ+='<div class="nsw-pj-empty">—</div>';
+    }
+    colJ+='</div>';
+    /* --- Colonne jeux --- */
+    var colG='<div class="nsw-pj-col">';
+    colG+='<div class="nsw-pj-title">JEUX</div>';
+    if(Array.isArray(games)&&games.length>0){
+      var maxMin=0;
+      games.forEach(function(g){maxMin=Math.max(maxMin,parseInt(g.minutes)||0);});
+      games.forEach(function(g){
+        if(!g.title)return;
+        var min=parseInt(g.minutes)||0;
+        var pct=maxMin>0?Math.round(min/maxMin*100):0;
+        colG+='<div class="nsw-pj-row">';
+        if(g.image){
+          colG+='<img class="nsw-pj-img" src="'+g.image+'" alt="" onerror="this.style.display=\'none\'">';
+        }else{
+          colG+='<span class="nsw-pj-img nsw-pj-ph">\uD83C\uDFAE</span>';
+        }
+        colG+='<div class="nsw-pj-ginfo">';
+        colG+='<div class="nsw-pj-name">'+g.title+'</div>';
+        colG+='<div class="nsw-gbar"><div class="nsw-gfill" style="width:'+pct+'%"></div></div>';
+        colG+='</div>';
+        colG+='<span class="nsw-pj-time">'+fmtMin(min)+'</span>';
+        colG+='</div>';
+      });
+    }else{
+      colG+='<div class="nsw-pj-empty">Aucun jeu</div>';
+    }
+    colG+='</div>';
+    el.innerHTML='<div class="nsw-pj-wrap">'+colJ+colG+'</div>';
+  })();
+
+  /* ── Mode restriction ───────────────────────────────────────────────── */
+  (function(){
+    var bA=document.getElementById('nsw-ta-'+EQ);
+    var bB=document.getElementById('nsw-tb-'+EQ);
+    if(!bA||!bB)return;
+    function upd(m){
+      bA.className='nsw-seg-btn'+(m===1?' on-a':'');
+      bB.className='nsw-seg-btn'+(m===0?' on-b':'');
+    }
+    upd(mode);
+    bA.onclick=function(){nswCmd('#cmd_mode_alerte_id#');upd(1);};
+    bB.onclick=function(){nswCmd('#cmd_mode_blocage_id#');upd(0);};
+  })();
+
+  /* ── Bouton + DE TEMPS (swap de ligne) ──────────────────────────────── */
+  (function(){
+    var rowMain=document.getElementById('nsw-row-main-'+EQ);
+    var rowTime=document.getElementById('nsw-row-time-'+EQ);
+    var btnTp  =document.getElementById('nsw-btp-'+EQ);
+    var btnBack=document.getElementById('nsw-bback-'+EQ);
+    if(!rowMain||!rowTime||!btnTp||!btnBack)return;
+
+    btnTp.onclick=function(){rowMain.style.display='none';rowTime.style.display='flex';};
+    btnBack.onclick=function(){rowTime.style.display='none';rowMain.style.display='flex';};
+
+    var timeItems=[
+      {id:'nsw-b15-'+EQ, cmdId:'#cmd_add15_id#', label:'+15 min'},
+      {id:'nsw-b30-'+EQ, cmdId:'#cmd_add30_id#', label:'+30 min'},
+      {id:'nsw-b60-'+EQ, cmdId:'#cmd_add60_id#', label:'+1 heure'}
+    ];
+    timeItems.forEach(function(it){
+      var btn=document.getElementById(it.id);
+      if(!btn||it.cmdId==='0')return;
+      btn.onclick=function(){
+        nswCmd(it.cmdId);
+        rowTime.style.display='none';
+        rowMain.style.display='flex';
+        var orig=btnTp.textContent;
+        btnTp.textContent='\u2713 '+it.label;
+        setTimeout(function(){btnTp.textContent=orig;},2000);
+      };
+    });
+  })();
+
+  /* ── Bouton Bloquer / Débloquer ─────────────────────────────────────── */
+  (function(){
+    var btn=document.getElementById('nsw-block-'+EQ);
+    if(!btn)return;
+    var bloquee=#bloquee#;
+    function upd(state){
+      if(state){
+        btn.className='nsw-ab nsw-ab-unblock';
+        btn.innerHTML='&#128275;&nbsp;D\u00C9BLOQUER';
+      }else{
+        btn.className='nsw-ab nsw-ab-lock';
+        btn.innerHTML='&#128274;&nbsp;BLOQUER';
+      }
+    }
+    upd(bloquee);
+    btn.onclick=function(){
+      if(bloquee){
+        nswCmd('#cmd_lever_id#');
+        bloquee=0;
+      }else{
+        nswCmd('#cmd_bloquer_id#');
+        bloquee=1;
+      }
+      upd(bloquee);
+    };
+  })();
+
+
+})();}catch(e){console.warn('[nsw]',e);}
+</script>
+</div>

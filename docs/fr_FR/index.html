@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JeeNinSwi — Documentation</title>
+<style>
+  /* ── Reset & base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #2d2d2d;
+    background: #f5f5f5;
+  }
+  a { color: #E4000F; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  .page-wrapper { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  nav {
+    width: 260px;
+    flex-shrink: 0;
+    background: #2d2d2d;
+    color: #ccc;
+    padding: 24px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  nav .logo {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid #444;
+    margin-bottom: 16px;
+  }
+  nav .logo h1 {
+    font-size: 1.3em;
+    font-weight: 900;
+    color: #fff;
+    letter-spacing: 1px;
+  }
+  nav .logo .version {
+    font-size: 0.75em;
+    color: #888;
+    margin-top: 2px;
+  }
+  nav ul { list-style: none; }
+  nav ul li a {
+    display: block;
+    padding: 7px 20px;
+    color: #bbb;
+    font-size: 0.88em;
+    border-left: 3px solid transparent;
+    transition: all .15s;
+  }
+  nav ul li a:hover, nav ul li a.active {
+    color: #fff;
+    border-left-color: #E4000F;
+    background: rgba(255,255,255,.05);
+    text-decoration: none;
+  }
+  nav ul li.section-title {
+    padding: 14px 20px 4px;
+    font-size: 0.72em;
+    font-weight: 700;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Main content */
+  main {
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 900px;
+  }
+
+  /* ── Typography ──────────────────────────────────────────── */
+  h1 { font-size: 2em; font-weight: 900; color: #2d2d2d; margin-bottom: 8px; }
+  h2 {
+    font-size: 1.4em; font-weight: 800; color: #2d2d2d;
+    margin: 40px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #E4000F;
+  }
+  h3 { font-size: 1.1em; font-weight: 700; color: #414141; margin: 28px 0 10px; }
+  h4 { font-size: 0.95em; font-weight: 700; color: #555; margin: 20px 0 8px; }
+  p  { margin-bottom: 12px; }
+
+  /* ── Page header ─────────────────────────────────────────── */
+  .page-header {
+    background: linear-gradient(135deg, #2d2d2d 0%, #414141 100%);
+    color: #fff;
+    padding: 32px 40px;
+    border-radius: 12px;
+    margin-bottom: 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .page-header .icon {
+    font-size: 3em;
+    flex-shrink: 0;
+  }
+  .page-header h1 { color: #fff; margin: 0 0 4px; font-size: 1.9em; }
+  .page-header p  { color: rgba(255,255,255,.75); margin: 0; font-size: 0.95em; }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.75em;
+    font-weight: 700;
+    background: #E4000F;
+    color: #fff;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  /* ── Callouts ─────────────────────────────────────────────── */
+  .callout {
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin: 16px 0;
+    border-left: 4px solid;
+    font-size: 0.92em;
+  }
+  .callout.info    { background: #e8f4fd; border-color: #2196f3; color: #1a4a6b; }
+  .callout.tip     { background: #e8f8e8; border-color: #4caf50; color: #1a4a1a; }
+  .callout.warning { background: #fff8e1; border-color: #ff9800; color: #5a3800; }
+  .callout strong  { display: block; margin-bottom: 4px; }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.9em;
+  }
+  th {
+    background: #2d2d2d;
+    color: #fff;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.85em;
+    letter-spacing: 0.3px;
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  tr:hover td { background: #f0f4ff; }
+  td code { background: #eef; padding: 1px 5px; border-radius: 3px; font-size: 0.88em; }
+
+  /* ── Code ─────────────────────────────────────────────────── */
+  code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.88em;
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #c7254e;
+  }
+  pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 16px 0;
+    font-size: 0.85em;
+    line-height: 1.6;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+
+  /* ── Steps ────────────────────────────────────────────────── */
+  .steps { list-style: none; margin: 16px 0; }
+  .steps li {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #E4000F;
+    color: #fff;
+    font-weight: 900;
+    font-size: 0.85em;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-body { flex: 1; padding-top: 3px; }
+
+  /* ── Feature grid ─────────────────────────────────────────── */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .feature-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 0.88em;
+  }
+  .feature-card .fc-icon { font-size: 1.5em; margin-bottom: 6px; }
+  .feature-card .fc-name { font-weight: 700; color: #2d2d2d; }
+  .feature-card .fc-desc { color: #666; font-size: 0.9em; margin-top: 3px; }
+
+  /* ── Widget mockup ────────────────────────────────────────── */
+  .widget-mockup {
+    background: #12151f;
+    color: #f0f4ff;
+    border-radius: 14px;
+    padding: 16px;
+    width: 300px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    margin: 16px 0;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  }
+  .wm-hdr { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 900; letter-spacing: 1px; font-size: 12px; text-transform: uppercase; }
+  .wm-band { background: #e60012; border-radius: 8px; text-align: center; padding: 8px; font-weight: 900; margin-bottom: 10px; font-size: 15px; }
+  .wm-chart { background: #f1f5f9; border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+  .wm-chart-title { font-size: 8px; font-weight: 800; color: #475569; text-align: center; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+  .wm-bars { display: flex; gap: 4px; height: 48px; align-items: flex-end; }
+  .wm-bar { flex: 1; border-radius: 3px 3px 0 0; }
+  .wm-btns { display: flex; gap: 5px; margin-bottom: 8px; }
+  .wm-btn { flex: 1; border: none; border-radius: 7px; padding: 8px 2px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; text-align: center; cursor: default; }
+  .wm-toggle { display: flex; background: #0f172a; border-radius: 8px; padding: 3px; gap: 2px; }
+  .wm-tbtn { flex: 1; border: none; border-radius: 6px; padding: 7px 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; text-align: center; cursor: default; }
+  .wm-mlbl { font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: 0.6px; text-align: center; margin-bottom: 4px; text-transform: uppercase; }
+
+  /* ── Scenario box ─────────────────────────────────────────── */
+  .scenario {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 12px 0;
+    font-size: 0.88em;
+  }
+  .scenario h4 { margin: 0 0 10px; color: #E4000F; font-size: 0.95em; }
+  .scenario .sc-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  .scenario .sc-label { font-weight: 700; color: #555; min-width: 90px; font-size: 0.85em; }
+  .scenario .sc-val { color: #333; }
+
+  /* ── Troubleshooting ──────────────────────────────────────── */
+  .trouble-item { margin-bottom: 20px; }
+  .trouble-item .problem { font-weight: 700; color: #c7254e; margin-bottom: 6px; }
+  .trouble-item ul { padding-left: 18px; }
+  .trouble-item li { margin-bottom: 4px; }
+
+  /* ── Architecture diagram ─────────────────────────────────── */
+  .arch-diagram {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 10px;
+    padding: 20px 24px;
+    font-family: monospace;
+    font-size: 0.85em;
+    line-height: 1.8;
+    margin: 16px 0;
+  }
+  .arch-diagram .c-green  { color: #4ec9b0; }
+  .arch-diagram .c-yellow { color: #dcdcaa; }
+  .arch-diagram .c-blue   { color: #9cdcfe; }
+  .arch-diagram .c-red    { color: #f48771; }
+
+  /* ── Responsive ───────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    nav { display: none; }
+    main { padding: 20px 18px; max-width: 100%; }
+    .page-header { padding: 20px; }
+    .feature-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page-wrapper">
+
+<!-- ── Sidebar navigation ─────────────────────────────────────────────── -->
+<nav>
+  <div class="logo">
+    <h1>JeeNinSwi</h1>
+    <div class="version">Plugin Jeedom — v0.1</div>
+  </div>
+  <ul>
+    <li class="section-title">Démarrage</li>
+    <li><a href="#presentation">Présentation</a></li>
+    <li><a href="#installation">Installation</a></li>
+    <li><a href="#token">Token Nintendo</a></li>
+
+    <li class="section-title">Utilisation</li>
+    <li><a href="#equipements">Équipements</a></li>
+    <li><a href="#widget">Widget dashboard</a></li>
+    <li><a href="#commandes">Commandes</a></li>
+    <li><a href="#scenarios">Scénarios</a></li>
+
+    <li class="section-title">Référence</li>
+    <li><a href="#depannage">Dépannage</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+  </ul>
+</nav>
+
+<!-- ── Main content ───────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Header -->
+  <div class="page-header">
+    <div class="icon">🎮</div>
+    <div>
+      <h1>JeeNinSwi</h1>
+      <p>Contrôle parental Nintendo Switch &amp; Switch 2 pour Jeedom.<br>
+         Supervision des profils, temps de jeu et blocage à distance.</p>
+    </div>
+  </div>
+
+  <!-- ── Présentation ──────────────────────────────────────────────────── -->
+  <h2 id="presentation">Présentation</h2>
+
+  <p>JeeNinSwi intègre l'application <strong>Nintendo Switch Parental Controls</strong>
+  dans Jeedom. Il vous permet de superviser et de contrôler le temps de jeu de vos
+  enfants directement depuis votre tableau de bord, sans ouvrir l'application
+  Nintendo sur votre téléphone.</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="fc-icon">⏱️</div>
+      <div class="fc-name">Temps de jeu</div>
+      <div class="fc-desc">Aujourd'hui, ce mois, temps restant</div>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">📊</div>
+      <div class="fc-name">Historique 7 jours</div>
+      <div class="fc-desc">Graphique des sessions par jour</div>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🕹️</div>
+      <div class="fc-name">Jeu en cours</div>
+      <div class="fc-desc">Dernier jeu lancé sur la console</div>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">➕</div>
+      <div class="fc-name">Bonus de temps</div>
+      <div class="fc-desc">+15 min, +30 min, +60 min</div>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🔒</div>
+      <div class="fc-name">Blocage</div>
+      <div class="fc-desc">Couper l'accès à distance</div>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🔔</div>
+      <div class="fc-name">Modes restriction</div>
+      <div class="fc-desc">Alerte ou blocage forcé</div>
+    </div>
+  </div>
+
+  <h3>Ce que le plugin ne peut pas faire</h3>
+  <p>Limitations liées à l'API Nintendo :</p>
+  <ul style="padding-left:20px;margin-bottom:12px;">
+    <li>Modifier la limite quotidienne (valeur lue en lecture seule)</li>
+    <li>Contrôler le GameChat Switch 2 (API non publique)</li>
+    <li>Afficher l'avatar Nintendo (non exposé par l'API)</li>
+  </ul>
+
+  <!-- ── Installation ─────────────────────────────────────────────────── -->
+  <h2 id="installation">Installation</h2>
+
+  <h3>Prérequis</h3>
+  <ul style="padding-left:20px;margin-bottom:12px;">
+    <li>Jeedom 4.4 ou supérieur</li>
+    <li>Python 3.8+ sur la machine Jeedom</li>
+    <li>Accès à l'app <strong>Nintendo Switch Parental Controls</strong> sur votre téléphone</li>
+    <li>Un compte Nintendo parent associé à la console enfant</li>
+  </ul>
+
+  <h3>Étapes</h3>
+  <ol class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Installer le plugin</strong><br>
+        Depuis le Market Jeedom ou en copiant le dossier dans <code>plugins/</code>.
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Installer les dépendances Python</strong><br>
+        Allez dans <strong>Plugins → Gestion des plugins → JeeNinSwi</strong>
+        et cliquez sur <strong>Installer les dépendances</strong>.<br>
+        Cette étape crée un environnement virtuel Python isolé dans
+        <code>resources/venv/</code> et installe <code>pynintendoparental</code>,
+        <code>aiohttp</code> et <code>croniter</code>.<br>
+        <span class="badge">Pourquoi un venv ?</span>
+        Les dépendances sont isolées du Python système — aucun paquet n'est
+        installé globalement.
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Activer le plugin et démarrer le démon</strong><br>
+        Dans la page de configuration, activez le plugin et démarrez le démon.
+        Le démon est un processus Python persistant qui communique avec l'API Nintendo.
+      </div>
+    </li>
+    <li>
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>Obtenir un token Nintendo</strong><br>
+        Ouvrez la configuration d'un équipement et cliquez sur
+        <strong>Assistant Token Nintendo</strong>. Voir la section suivante.
+      </div>
+    </li>
+  </ol>
+
+  <!-- ── Token Nintendo ────────────────────────────────────────────────── -->
+  <h2 id="token">Obtenir le token Nintendo</h2>
+
+  <p>Le plugin utilise un <strong>token de session Nintendo</strong> pour accéder à
+  l'API Parental Controls. Ce token est obtenu via un processus OAuth en 3 étapes,
+  depuis l'assistant intégré à Jeedom.</p>
+
+  <div class="callout warning">
+    <strong>⚠️ Compte parent requis</strong>
+    Connectez-vous avec le compte Nintendo <em>parent</em> (celui qui administre
+    le contrôle parental), pas avec le compte de l'enfant.
+  </div>
+
+  <ol class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Générer l'URL de connexion</strong><br>
+        Dans la configuration d'un équipement, cliquez sur
+        <strong>Assistant Token Nintendo</strong> puis
+        <strong>Générer l'URL de connexion</strong>.
+        Une URL Nintendo apparaît — copiez-la et ouvrez-la dans votre navigateur.
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Se connecter avec son compte Nintendo</strong><br>
+        Connectez-vous sur le site Nintendo. La page va tenter de vous rediriger
+        vers l'URL <code>npf54789befb391a838://auth#session_token_code=…</code>
+        (l'app Parental Controls sur mobile, ou une erreur sur PC).
+        <strong>Copiez cette URL complète</strong> depuis la barre d'adresse.
+        <div class="callout tip" style="margin-top:10px;">
+          <strong>💡 Astuce mobile</strong>
+          Sur téléphone, l'URL s'affiche brièvement avant l'ouverture de l'app.
+          Sur PC, le navigateur affiche une erreur "impossible d'ouvrir" mais
+          l'URL est visible dans la barre d'adresse.
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Valider et créer les équipements</strong><br>
+        Collez l'URL copiée dans le champ <strong>URL de redirection</strong>
+        et cliquez sur <strong>Valider</strong>.
+        Le plugin récupère automatiquement la liste de vos consoles et crée
+        les équipements Jeedom correspondants.
+      </div>
+    </li>
+  </ol>
+
+  <!-- ── Équipements ───────────────────────────────────────────────────── -->
+  <h2 id="equipements">Configuration des équipements</h2>
+
+  <p>Chaque console Nintendo apparaît comme un <strong>équipement Jeedom</strong>
+  indépendant. Si vous relancez l'assistant token, les équipements existants
+  ne sont pas recréés — seul le token est mis à jour.</p>
+
+  <div class="callout info">
+    <strong>ℹ️ Nom de l'équipement</strong>
+    Le nom de l'équipement dans Jeedom est indépendant du profil Nintendo.
+    Vous pouvez le renommer librement sans impact sur l'app Nintendo,
+    et vice versa.
+  </div>
+
+  <table>
+    <thead><tr><th>Option</th><th>Description</th><th>Défaut</th></tr></thead>
+    <tbody>
+      <tr><td>Nom</td><td>Nom de l'équipement dans Jeedom</td><td>Nom Nintendo</td></tr>
+      <tr><td>Objet parent</td><td>Objet Jeedom auquel rattacher l'équipement</td><td>—</td></tr>
+      <tr><td>Activé</td><td>Active/désactive la supervision</td><td>Oui</td></tr>
+      <tr><td>Visible</td><td>Affiche/masque le widget sur le dashboard</td><td>Oui</td></tr>
+      <tr><td>Intervalle de polling</td><td>Fréquence de mise à jour (secondes)</td><td>300 (5 min)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── Widget ─────────────────────────────────────────────────────────── -->
+  <h2 id="widget">Widget Dashboard</h2>
+
+  <p>Chaque équipement affiche un widget sur le tableau de bord Jeedom :</p>
+
+  <!-- Widget mockup -->
+  <div class="widget-mockup">
+    <div class="wm-hdr">
+      <span>THIEBAULT</span>
+      <span style="color:#8b9ec7;font-size:14px;">↺</span>
+    </div>
+    <div class="wm-band">TEMPS RESTANT&nbsp;: 1h 23min</div>
+    <div class="wm-chart">
+      <div class="wm-chart-title">HISTORIQUE D'USAGE (7 JOURS GLISSANTS)</div>
+      <div class="wm-bars">
+        <div class="wm-bar" style="height:30%;background:#22c55e;"></div>
+        <div class="wm-bar" style="height:80%;background:#22c55e;"></div>
+        <div class="wm-bar" style="height:100%;background:#e60012;"></div>
+        <div class="wm-bar" style="height:20%;background:#22c55e;"></div>
+        <div class="wm-bar" style="height:10%;background:#cbd5e1;"></div>
+        <div class="wm-bar" style="height:60%;background:#22c55e;"></div>
+        <div class="wm-bar" style="height:45%;background:#22c55e;"></div>
+      </div>
+    </div>
+    <div class="wm-btns">
+      <div class="wm-btn" style="background:#16a34a;color:#fff;">+15 MIN</div>
+      <div class="wm-btn" style="background:#4f46e5;color:#fff;">🎮 BONUS</div>
+      <div class="wm-btn" style="background:#ea580c;color:#fff;">⚠ SIGNALER</div>
+    </div>
+    <div class="wm-mlbl">MODE DE RESTRICTION</div>
+    <div class="wm-toggle">
+      <div class="wm-tbtn" style="background:rgba(234,179,8,.15);color:#eab308;">ALERTE</div>
+      <div class="wm-tbtn" style="color:#475569;">BLOCAGE FORCÉ</div>
+    </div>
+  </div>
+
+  <h3>Éléments du widget</h3>
+  <table>
+    <thead><tr><th>Élément</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Nom du profil + <code>↺</code></td><td>Pseudo Nintendo. L'icône rafraîchir force une mise à jour immédiate (tourne pendant la requête).</td></tr>
+      <tr><td>Bande rouge</td><td>Temps restant dans la journée. Affiche "Illimité" si pas de limite configurée.</td></tr>
+      <tr><td>Graphique 7 jours</td><td>Barres vertes = dans la limite, rouges = dépassement, grises = aucune session. Trait bleu = limite quotidienne.</td></tr>
+      <tr><td>+15 MIN</td><td>Accorde 15 minutes de bonus (commande <code>ajouter_temps_15</code>).</td></tr>
+      <tr><td>🎮 BONUS</td><td>Accorde 30 minutes de bonus via la commande <code>bonus_special</code> (slider, valeur 30 par défaut). Peut aussi être appelée avec une autre valeur depuis un scénario.</td></tr>
+      <tr><td>⚠ SIGNALER</td><td>Enregistre un signalement (usage interne, aucun impact Nintendo).</td></tr>
+      <tr><td>ALERTE</td><td>Mode alerte : la console envoie une notification sans se couper.</td></tr>
+      <tr><td>BLOCAGE FORCÉ</td><td>Mode blocage : la console se coupe automatiquement à la fin du temps.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── Commandes ─────────────────────────────────────────────────────── -->
+  <h2 id="commandes">Commandes disponibles</h2>
+
+  <h3>Commandes INFO</h3>
+  <table>
+    <thead><tr><th>Nom</th><th>logicalId</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Pseudo</td><td><code>pseudo</code></td><td>string</td><td>Nom du profil Nintendo</td></tr>
+      <tr><td>Avatar URL</td><td><code>avatar_url</code></td><td>string</td><td>URL de l'avatar (vide — non exposé par l'API Nintendo)</td></tr>
+      <tr><td>Statut en ligne</td><td><code>statut_en_ligne</code></td><td>string</td><td>En ligne / En jeu / Hors ligne</td></tr>
+      <tr><td>Jeu en cours</td><td><code>jeu_en_cours</code></td><td>string</td><td>Nom du jeu le plus joué aujourd'hui</td></tr>
+      <tr><td>Jeu image</td><td><code>jeu_en_cours_image</code></td><td>string</td><td>URL de la pochette du jeu en cours</td></tr>
+      <tr><td>Temps de jeu (jour)</td><td><code>temps_jour</code></td><td>numeric</td><td>Minutes jouées aujourd'hui</td></tr>
+      <tr><td>Temps de jeu (mois)</td><td><code>temps_semaine</code></td><td>numeric</td><td>Minutes jouées ce mois-ci</td></tr>
+      <tr><td>Temps restant</td><td><code>temps_restant</code></td><td>numeric</td><td>Minutes restantes aujourd'hui (-1 = illimité)</td></tr>
+      <tr><td>Limite quotidienne</td><td><code>temps_limite</code></td><td>numeric</td><td>Limite configurée en minutes (-1 = aucune)</td></tr>
+      <tr><td>Console bloquée</td><td><code>console_bloquee</code></td><td>binary</td><td>1 = bloquée (limite à 0), 0 = normale</td></tr>
+      <tr><td>Mode restriction</td><td><code>mode_restriction</code></td><td>binary</td><td>0 = blocage forcé, 1 = alerte</td></tr>
+      <tr><td>GameChat actif</td><td><code>gamechat_actif</code></td><td>binary</td><td>1 = activé, 0 = désactivé (Switch 2 uniquement)</td></tr>
+      <tr><td>Historique jeux</td><td><code>historique_jeux</code></td><td>string</td><td>JSON des 10 jeux les plus joués aujourd'hui</td></tr>
+      <tr><td>Timeline 7 jours</td><td><code>timeline_json</code></td><td>string</td><td>JSON pour le graphique historique du widget</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Commandes ACTION</h3>
+  <table>
+    <thead><tr><th>Nom</th><th>logicalId</th><th>Sous-type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Rafraîchir</td><td><code>rafraichir</code></td><td>other</td><td>Mise à jour immédiate depuis l'API Nintendo (bouton ↺ du widget)</td></tr>
+      <tr><td>Bloquer maintenant</td><td><code>bloquer_maintenant</code></td><td>other</td><td>Suspend l'accès à la console (fixe la limite à 0)</td></tr>
+      <tr><td>Lever la restriction</td><td><code>lever_restriction</code></td><td>other</td><td>Restaure l'accès normal (fixe la limite à -1)</td></tr>
+      <tr><td>Ajouter 15 min</td><td><code>ajouter_temps_15</code></td><td>other</td><td>Accorde 15 minutes de bonus</td></tr>
+      <tr><td>Ajouter 30 min</td><td><code>ajouter_temps_30</code></td><td>other</td><td>Accorde 30 minutes de bonus</td></tr>
+      <tr><td>Ajouter 60 min</td><td><code>ajouter_temps_60</code></td><td>other</td><td>Accorde 60 minutes de bonus</td></tr>
+      <tr><td>Bonus (min)</td><td><code>bonus_special</code></td><td>slider 0–120</td><td>Accorde N minutes de bonus (slider). Utilisé par le bouton 🎮 BONUS du widget (valeur 30 par défaut).</td></tr>
+      <tr><td>Définir limite</td><td><code>definir_limite</code></td><td>slider 0–360</td><td>Fixe la limite quotidienne en minutes</td></tr>
+      <tr><td>Mode alerte</td><td><code>mode_alerte</code></td><td>other</td><td>Active le mode alerte (notification sans coupure)</td></tr>
+      <tr><td>Mode blocage</td><td><code>mode_blocage</code></td><td>other</td><td>Active le mode blocage forcé (coupure automatique)</td></tr>
+      <tr><td>Signaler</td><td><code>signaler</code></td><td>other</td><td>Enregistre un signalement (usage interne)</td></tr>
+      <tr><td>Activer GameChat</td><td><code>gamechat_on</code></td><td>other</td><td>Active le GameChat Switch 2 (non supporté par l'API)</td></tr>
+      <tr><td>Désactiver GameChat</td><td><code>gamechat_off</code></td><td>other</td><td>Désactive le GameChat Switch 2 (non supporté par l'API)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── Scénarios ─────────────────────────────────────────────────────── -->
+  <h2 id="scenarios">Exemples de scénarios</h2>
+
+  <div class="scenario">
+    <h4>🍽️ Couper la console à l'heure du dîner</h4>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Tous les jours à 18h30</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 0</div></div>
+    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Thiebault][Bloquer maintenant]</div></div>
+    <div class="sc-row"><div class="sc-label">Action 2</div><div class="sc-val">Message push : "Console coupée pour le dîner"</div></div>
+  </div>
+
+  <div class="scenario">
+    <h4>⏰ Alerter si le temps dépasse 2h</h4>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">[Switch Thiebault][temps_jour] change de valeur</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][temps_jour] &gt; 120</div></div>
+    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Message push : "Thiebault a joué plus de 2h aujourd'hui"</div></div>
+  </div>
+
+  <div class="scenario">
+    <h4>🎉 Bonus le vendredi soir</h4>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Vendredi à 20h00</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 0</div></div>
+    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Thiebault][Ajouter 60 min]</div></div>
+    <div class="sc-row"><div class="sc-label">Action 2</div><div class="sc-val">Message push : "Bonus d'1h accordé ce vendredi !"</div></div>
+  </div>
+
+  <div class="scenario">
+    <h4>🌙 Restaurer l'accès le matin</h4>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Tous les jours à 8h00</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 1</div></div>
+    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Commande [Switch Thiebault][Lever la restriction]</div></div>
+  </div>
+
+  <!-- ── Dépannage ─────────────────────────────────────────────────────── -->
+  <h2 id="depannage">Dépannage</h2>
+
+  <div class="trouble-item">
+    <div class="problem">Le démon ne démarre pas</div>
+    <ul>
+      <li>Vérifiez que les dépendances sont installées (état <strong>OK</strong> dans la page configuration)</li>
+      <li>Consultez les logs : <strong>Analyse → Logs → jeeninswi</strong></li>
+      <li>Relancez l'installation des dépendances si nécessaire</li>
+      <li>Vérifiez que Python 3.8+ est disponible : <code>python3 --version</code></li>
+    </ul>
+  </div>
+
+  <div class="trouble-item">
+    <div class="problem">Les données ne se mettent pas à jour</div>
+    <ul>
+      <li>Cliquez sur <code>↺</code> dans le widget pour forcer un rafraîchissement</li>
+      <li>Consultez les logs pour vérifier la communication avec l'API Nintendo</li>
+      <li>Si le token est expiré (plusieurs mois), relancez l'<strong>Assistant Token Nintendo</strong></li>
+    </ul>
+  </div>
+
+  <div class="trouble-item">
+    <div class="problem">L'assistant token affiche une erreur</div>
+    <ul>
+      <li><strong>"URL de redirection invalide"</strong> : L'URL copiée ne commence pas par
+          <code>npf54789befb391a838://auth#</code>. Copiez l'URL complète depuis la barre d'adresse.</li>
+      <li><strong>"Impossible de générer l'URL"</strong> : Dépendances Python non installées.
+          Relancez l'installation des dépendances.</li>
+      <li><strong>"Fichier d'état introuvable"</strong> : L'état OAuth a expiré.
+          Relancez depuis l'étape 1 de l'assistant.</li>
+    </ul>
+  </div>
+
+  <div class="trouble-item">
+    <div class="problem">Dépendances en erreur (état NOK)</div>
+    <ul>
+      <li>Vérifiez les logs de dépendances : <strong>Analyse → Logs → jeeninswi_dependancy</strong></li>
+      <li>Sur Debian/Ubuntu, installez le paquet venv si manquant :
+          <code>apt-get install -y python3-venv</code></li>
+      <li>Relancez l'installation des dépendances depuis la page de gestion du plugin</li>
+    </ul>
+  </div>
+
+  <!-- ── Architecture ──────────────────────────────────────────────────── -->
+  <h2 id="architecture">Architecture technique</h2>
+
+  <p>Pour les développeurs ou utilisateurs avancés :</p>
+
+  <div class="arch-diagram">
+<span class="c-blue">Jeedom (PHP)</span>          <span class="c-yellow">Démon Python</span>         <span class="c-green">API Nintendo</span>
+    │                       │                      │
+    │── <span class="c-yellow">sendToDaemon()</span> ──────▶│                      │
+    │   POST /action         │── <span class="c-green">NintendoParental</span> ──▶│
+    │                       │   (pynintendoparental)│
+    │◀── <span class="c-red">callback.php</span> ──────│◀─────────────────────│
+    │    POST + JSON data    │                      │
+    │── <span class="c-blue">updateFromData()</span> ──▶│                      │
+    │   (cmd::event)         │                      │
+  </div>
+
+  <h3>Composants</h3>
+  <table>
+    <thead><tr><th>Fichier</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td><code>core/class/jeeninswi.class.php</code></td><td>Logique métier Jeedom (eqLogic, cmd, toHtml, callback)</td></tr>
+      <tr><td><code>core/ajax/jeeninswi.ajax.php</code></td><td>Endpoints AJAX (assistant token, statut, actions)</td></tr>
+      <tr><td><code>core/php/callback.php</code></td><td>Réception HTTP des données du démon</td></tr>
+      <tr><td><code>resources/jeeninswid/jeeninswid.py</code></td><td>Démon Python — poll Nintendo, serveur HTTP aiohttp</td></tr>
+      <tr><td><code>resources/auth_helper.py</code></td><td>Helper OAuth one-shot (appelé par ajax.php)</td></tr>
+      <tr><td><code>resources/install_dep.sh</code></td><td>Crée le venv Python et installe les dépendances</td></tr>
+      <tr><td><code>resources/venv/</code></td><td>Environnement virtuel Python isolé (créé à l'installation)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Ports et intervalles</h3>
+  <table>
+    <thead><tr><th>Paramètre</th><th>Valeur</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Port démon</td><td><code>8347</code></td><td>Mini-serveur HTTP pour les actions Jeedom → démon</td></tr>
+      <tr><td>Polling par défaut</td><td>5 minutes</td><td>Intervalle de mise à jour des données Nintendo</td></tr>
+      <tr><td>Timeout callback</td><td>5 secondes</td><td>Délai max pour la réponse de Jeedom</td></tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top:48px;padding-top:24px;border-top:1px solid #e8e8e8;font-size:0.82em;color:#888;text-align:center;">
+    JeeNinSwi — Auteur : Antoine (Aldarande) —
+    Bibliothèque : <a href="https://github.com/pantherale0/pynintendoparental">pynintendoparental</a> —
+    Protocole : <a href="https://github.com/samuelthomas2774/nxapi">nxapi</a>
+  </div>
+
+</main>
+</div>
+
+<script>
+// Mise en surbrillance du lien actif dans la navigation selon le scroll
+(function() {
+  var links = document.querySelectorAll('nav a[href^="#"]');
+  var sections = Array.from(links).map(function(l) {
+    return document.querySelector(l.getAttribute('href'));
+  });
+  function onScroll() {
+    var scrollY = window.scrollY + 80;
+    var active = null;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i] && sections[i].offsetTop <= scrollY) {
+        active = links[i];
+      }
+    }
+    links.forEach(function(l) { l.classList.remove('active'); });
+    if (active) { active.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll);
+  onScroll();
+})();
+</script>
+</body>
+</html>

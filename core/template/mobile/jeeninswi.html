@@ -1,0 +1,23 @@
+<div class="ninswi-widget ninswi-mobile" id="ninswi-#eqLogic_id#">
+  <style scoped>
+    #ninswi-#eqLogic_id#{background:#1a1f2e;border-radius:12px;padding:10px;color:#f0f4ff;font-family:sans-serif;min-width:140px;}
+    #ninswi-#eqLogic_id# .nsw-m-row{display:flex;align-items:center;gap:8px;}
+    #ninswi-#eqLogic_id# .nsw-m-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid #e4000f;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:18px;}
+    #ninswi-#eqLogic_id# .nsw-m-name{font-weight:700;font-size:13px;}
+    #ninswi-#eqLogic_id# .nsw-m-time{font-size:11px;color:#8b9ec7;margin-top:4px;}
+  </style>
+  <div class="nsw-m-row">
+    <div class="nsw-m-avatar" id="nsw-m-av-#eqLogic_id#">🎮</div>
+    <div>
+      <div class="nsw-m-name">#pseudo#</div>
+      <div class="nsw-m-time">#temps_jour_fmt# aujourd'hui</div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var av=document.getElementById('nsw-m-av-#eqLogic_id#');
+    var url=#avatar_url_js#;
+    if(av&&url){var img=document.createElement('img');img.style.cssText='width:36px;height:36px;border-radius:50%;object-fit:cover;';img.src=url;av.innerHTML='';av.appendChild(img);}
+  })();
+  </script>
+</div>

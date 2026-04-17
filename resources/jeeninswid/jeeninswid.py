@@ -1,0 +1,865 @@
+#!/usr/bin/env python3
+"""
+JeeNinSwi - Démon principal
+Gère la communication avec l'API Nintendo Switch Parental Controls
+via la bibliothèque pynintendoparental (async, pip).
+
+Architecture :
+  - Un serveur HTTP aiohttp écoute sur 127.0.0.1:{port} pour recevoir les
+    commandes de Jeedom (actions : refresh, add_bonus_time, suspend, etc.)
+  - Une boucle de polling contacte l'API Nintendo toutes les N secondes
+    (ou selon une expression cron si croniter est installé)
+  - Les données récupérées sont envoyées à Jeedom via HTTP callback
+    vers core/php/callback.php
+
+Flux action Jeedom → démon :
+  cmd::execute() → eqLogic::sendToDaemon() → POST /action → handle_action()
+  → pynintendoparental API
+
+Flux données démon → Jeedom :
+  fetch_all_devices() → process_device() → send_callback()
+  → POST callback.php → jeeninswi::callback() → updateFromData()
+"""
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from datetime import datetime, timedelta   # Imports à ce niveau pour éviter les imports dynamiques
+
+import aiohttp
+from aiohttp import web
+
+# croniter : si installé, permet un polling précis selon une expression cron
+try:
+    from croniter import croniter
+    HAS_CRONITER = True
+except ImportError:
+    HAS_CRONITER = False
+
+# ─── Import pynintendoparental ────────────────────────────────────────────────
+# La bibliothèque doit être installée dans le venv via install_dep.sh
+try:
+    from pynintendoparental import NintendoParental
+    from pynintendoparental.authenticator import Authenticator
+    from pynintendoparental.exceptions import NoDevicesFoundException
+    from pynintendoparental.enum import RestrictionMode   # Import top-level pour éviter l'import dans handle_action()
+except ImportError as e:
+    print(
+        f"ERREUR: pynintendoparental non installé ({e}). "
+        "Lancez le script d'installation des dépendances depuis l'interface Jeedom."
+    )
+    sys.exit(1)
+
+# InvalidSessionTokenException : dans pynintendoauth si disponible
+try:
+    from pynintendoauth.exceptions import InvalidSessionTokenException
+except ImportError:
+    InvalidSessionTokenException = Exception
+
+
+# ─── Configuration du logging ─────────────────────────────────────────────────
+def setup_logging(log_file: str, debug: bool = False) -> logging.Logger:
+    """
+    Configure le logger principal.
+    - En mode debug : niveau DEBUG (très verbeux, pour diagnostic)
+    - En mode normal : niveau INFO (événements importants uniquement)
+    - Si log_file est fourni : écriture dans le fichier Jeedom (pas de stdout)
+    """
+    level = logging.DEBUG if debug else logging.INFO
+    if log_file:
+        handlers = [logging.FileHandler(log_file)]
+    else:
+        handlers = [logging.StreamHandler()]
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=handlers
+    )
+    return logging.getLogger('jeeninswi')
+
+
+# ─── Classe principale du démon ───────────────────────────────────────────────
+class JeeNinSwiDaemon:
+    """
+    Démon JeeNinSwi — gère plusieurs comptes Nintendo en parallèle.
+
+    Chaque compte Nintendo est identifié par son token de session.
+    Un verrou asyncio par token sérialise les accès à l'API Nintendo
+    pour éviter les conflits (limite de débit côté Nintendo).
+    """
+
+    def __init__(self, args):
+        self.port          = args.port
+        self.callback_url  = args.callback
+        self.poll_cron     = args.poll_cron
+        self.poll_interval = self._cron_to_seconds(args.poll_cron)
+        self.pid_file      = args.pid_file
+        self.log           = setup_logging(args.log_file, args.debug)
+        self.running       = True
+
+        # ── Structures multi-comptes ────────────────────────────────────────
+        # apis : token → instance NintendoParental (l'API pour ce compte)
+        self.apis: dict         = {}
+        # token_devices : token → set(device_ids) supervisés pour ce compte
+        self.token_devices: dict = {}
+        # api_locks : token → asyncio.Lock — un verrou par compte Nintendo
+        self.api_locks: dict    = {}
+        # auth_sessions : token → aiohttp.ClientSession (session d'authentification)
+        # Stockées ici pour pouvoir les fermer proprement à l'arrêt ou en cas d'erreur
+        self.auth_sessions: dict = {}
+        # http_session : session aiohttp partagée pour les callbacks vers Jeedom
+        # Initialisée dans run() pour être dans la même boucle asyncio
+        self.http_session        = None
+
+        # ── Écrire le PID pour que Jeedom puisse surveiller le processus ────
+        with open(self.pid_file, 'w') as f:
+            f.write(str(os.getpid()))
+        self.log.debug(f'[init] PID={os.getpid()} écrit dans {self.pid_file}')
+
+        # ── Gérer SIGTERM / SIGINT proprement ────────────────────────────────
+        # SIGTERM : envoyé par Jeedom pour arrêter le démon (deamon_stop)
+        # SIGINT  : Ctrl+C en développement
+        signal.signal(signal.SIGTERM, self._handle_signal)
+        signal.signal(signal.SIGINT, self._handle_signal)
+
+    # ── Utilitaires ──────────────────────────────────────────────────────────
+
+    def _cron_to_seconds(self, cron_expr: str) -> int:
+        """
+        Convertit une expression cron (ex: '*/5 * * * *') en secondes.
+        Utilise croniter si disponible pour un calcul précis, sinon fallback
+        sur l'analyse manuelle du premier champ.
+        """
+        if HAS_CRONITER:
+            try:
+                c = croniter(cron_expr, time.time())
+                next1 = c.get_next(float)
+                next2 = c.get_next(float)
+                return max(60, int(next2 - next1))
+            except Exception:
+                pass
+        # Fallback : '*/N * * * *' → N*60 secondes
+        try:
+            parts = cron_expr.strip().split()
+            if len(parts) >= 1 and parts[0].startswith('*/'):
+                return int(parts[0][2:]) * 60
+        except Exception:
+            pass
+        return 300  # Défaut : 5 minutes
+
+    def _handle_signal(self, signum, frame):
+        """Gestionnaire de signal SIGTERM/SIGINT — arrêt propre du démon."""
+        self.log.info(f'Signal {signum} reçu — arrêt du démon')
+        self.running = False
+        if os.path.exists(self.pid_file):
+            os.remove(self.pid_file)
+        sys.exit(0)
+
+    def _get_lock(self, token: str) -> asyncio.Lock:
+        """
+        Retourne le verrou asyncio pour ce token (créé si inexistant).
+        Ce verrou garantit qu'un seul appel API est en cours par compte Nintendo.
+        """
+        if token not in self.api_locks:
+            self.log.debug(f'[lock] Création verrou pour token …{token[-6:]}')
+            self.api_locks[token] = asyncio.Lock()
+        return self.api_locks[token]
+
+    # ── Connexion à l'API Nintendo ───────────────────────────────────────────
+
+    async def get_or_connect(self, token: str):
+        """
+        Retourne l'API NintendoParental pour ce token.
+        Si le token n'est pas encore connecté, déclenche la connexion OAuth.
+        Thread-safe via asyncio.Lock : une seule connexion simultanée par token.
+        """
+        if not token:
+            self.log.debug('[get_or_connect] Token vide — connexion ignorée')
+            return None
+        self.log.debug(f'[get_or_connect] Token …{token[-6:]}')
+        async with self._get_lock(token):
+            if token in self.apis:
+                self.log.debug(f'[get_or_connect] Token …{token[-6:]} déjà connecté — réutilisation')
+                return self.apis[token]
+            self.log.debug(f'[get_or_connect] Token …{token[-6:]} nouveau — connexion OAuth en cours')
+            return await self._connect_token(token)
+
+    async def _connect_token(self, token: str):
+        """
+        Authentifie un token Nintendo et crée l'instance NintendoParental.
+        DOIT être appelé sous _get_lock(token) pour éviter les connexions doubles.
+        Stocke la session aiohttp dans self.auth_sessions pour fermeture propre.
+        """
+        self.log.info(f'Connexion Nintendo pour token …{token[-6:]}')
+        try:
+            # Fermer l'éventuelle ancienne session pour ce token (reconnexion)
+            old_session = self.auth_sessions.pop(token, None)
+            if old_session and not old_session.closed:
+                await old_session.close()
+                self.log.debug(f'[_connect_token] Ancienne session fermée pour token …{token[-6:]}')
+
+            # Créer une session dédiée à ce compte (ne pas réutiliser la session callback)
+            session = aiohttp.ClientSession()
+            self.auth_sessions[token] = session  # Référence stockée pour fermeture future
+
+            auth = Authenticator(session_token=token, client_session=session)
+            self.log.debug(f'[_connect_token] async_complete_login en cours…')
+            await auth.async_complete_login(use_session_token=True)
+
+            self.log.debug(f'[_connect_token] Login OK — création NintendoParental (fr-FR, Europe/Paris)')
+            api = await NintendoParental.create(auth, timezone='Europe/Paris', lang='fr-FR')
+            self.apis[token] = api
+            self.log.info(f'Token …{token[-6:]} connecté. Comptes actifs : {len(self.apis)}')
+            return api
+
+        except InvalidSessionTokenException:
+            self.log.error(
+                f'Token …{token[-6:]} invalide ou expiré — '
+                'relancez l\'assistant token dans la configuration Jeedom'
+            )
+            await self._close_token_session(token)
+            return None
+        except Exception as e:
+            self.log.error(f'Erreur connexion token …{token[-6:]}: {type(e).__name__}: {e}')
+            await self._close_token_session(token)
+            return None
+
+    async def _close_token_session(self, token: str):
+        """
+        Ferme la session aiohttp d'un token et le supprime de tous les dictionnaires.
+        Appelé quand un token expire ou devient invalide.
+        """
+        session = self.auth_sessions.pop(token, None)
+        if session and not session.closed:
+            try:
+                await session.close()
+                self.log.debug(f'[_close_token_session] Session fermée pour token …{token[-6:]}')
+            except Exception:
+                pass
+        self.apis.pop(token, None)
+        self.api_locks.pop(token, None)
+        self.token_devices.pop(token, None)
+
+    # ── Récupération des données Nintendo ────────────────────────────────────
+
+    async def fetch_all_devices(self):
+        """
+        Lance le polling pour tous les comptes Nintendo connectés.
+        Chaque compte est traité séquentiellement (un verrou par token).
+        """
+        if not self.apis:
+            self.log.debug('[fetch_all_devices] Aucun compte connecté — polling ignoré')
+            return
+        self.log.debug(f'[fetch_all_devices] Début polling {len(self.apis)} compte(s)')
+        for token, api in list(self.apis.items()):
+            await self._fetch_for_token(token, api)
+        self.log.debug('[fetch_all_devices] Polling terminé')
+
+    async def _fetch_for_token(self, token: str, api):
+        """
+        Acquiert le verrou puis appelle _do_fetch.
+        Utilisé par le polling autonome pour éviter les conflits avec les actions.
+        """
+        self.log.debug(f'[_fetch_for_token] Acquisition verrou token …{token[-6:]}')
+        async with self._get_lock(token):
+            await self._do_fetch(token, api)
+
+    async def _do_fetch(self, token: str, api):
+        """
+        Appelle api.update() et envoie les données vers Jeedom via callback.
+        NE prend PAS le verrou — doit être appelé avec le verrou déjà tenu
+        (par _fetch_for_token ou handle_action action=refresh).
+        """
+        registered = self.token_devices.get(token, set())
+        self.log.debug(
+            f'[_do_fetch] token …{token[-6:]} | '
+            f'devices filtrés: {registered if registered else "tous"}'
+        )
+        try:
+            self.log.debug(f'[_do_fetch] api.update() en cours…')
+            await api.update()
+            devices = api.devices or {}
+            self.log.debug(f'[_do_fetch] {len(devices)} device(s) retourné(s) par l\'API Nintendo')
+
+            processed = 0
+            for device_id, device in devices.items():
+                if registered and device_id not in registered:
+                    self.log.debug(f'[_do_fetch] device {device_id} ignoré (non enregistré pour ce token)')
+                    continue
+                self.log.debug(f'[_do_fetch] Traitement device {device_id} ({device.name})')
+                await self.process_device(device)
+                processed += 1
+            self.log.debug(f'[_do_fetch] {processed}/{len(devices)} device(s) traité(s) pour token …{token[-6:]}')
+
+        except InvalidSessionTokenException:
+            self.log.error(
+                f'Session expirée pour token …{token[-6:]} — '
+                'suppression du compte, reconnexion nécessaire'
+            )
+            await self._close_token_session(token)
+        except NoDevicesFoundException:
+            self.log.warning(
+                f'Aucune console associée au compte token …{token[-6:]}. '
+                'Vérifiez l\'application Nintendo Switch Parental Controls.'
+            )
+        except Exception as e:
+            self.log.error(f'Erreur fetch token …{token[-6:]}: {type(e).__name__}: {e}')
+
+    async def process_device(self, device):
+        """
+        Transforme un objet device pynintendoparental en dict Jeedom
+        et déclenche l'envoi du callback.
+        """
+        self.log.debug(f'[process_device] device_id={device.device_id} | name={device.name}')
+        try:
+            # forced_termination_mode=True → FORCED(0=blocage), False → ALARM(1=alerte)
+            restr            = getattr(device, 'forced_termination_mode', None)
+            restriction_mode = 0 if restr is True else 1
+
+            # limit_time=0 signifie une suspension immédiate (blocage total)
+            limit_time = getattr(device, 'limit_time', None)
+            suspended  = (limit_time is not None and int(limit_time) == 0)
+
+            self.log.debug(
+                f'[process_device] {device.device_id} — '
+                f'limit_time={limit_time} | suspended={suspended} | restriction_mode={restriction_mode}'
+            )
+
+            # Cache titre/icône depuis les jeux joués aujourd'hui (player.apps)
+            # Contient meta.title et meta.imageUri fournis par l'API Nintendo
+            game_meta = self._build_game_meta_cache(device)
+
+            data = {
+                'device_id':        device.device_id,
+                'nickname':         device.name or '',
+                'avatar_url':       '',  # Non exposé par pynintendoparental
+                'online_status':    'online',
+                'current_game':     self._get_current_game(device),
+                'playtime_today':   int(getattr(device, 'today_playing_time', 0) or 0),
+                'playtime_month':   int(getattr(device, 'month_playing_time', 0) or 0),
+                # -1 = pas de limite configurée (limit_time = None ou -1)
+                # sinon : minutes restantes réelles (peut être 0 = temps épuisé)
+                'time_remaining':   -1 if limit_time in (None, -1) else int(getattr(device, 'today_time_remaining', 0)),
+                'daily_limit':      int(limit_time) if (limit_time is not None and int(limit_time) >= 0) else -1,
+                'game_history':     self._get_game_history(device, game_meta),
+                'player_history':   self._get_player_history(device),
+                'disabled_today':   int(getattr(device, 'today_disabled_time', 0) or 0),
+                'exceeded_today':   int(getattr(device, 'today_exceeded_time', 0) or 0),
+                'month_days':       self._get_month_stat(device, 'totalDays'),
+                'month_avg':        self._get_month_stat(device, 'averageTime'),
+                'gamechat_enabled': None,  # Non supporté par pynintendoparental actuellement
+                'suspended':        suspended,
+                'restriction_mode': restriction_mode,
+                'daily_summaries':  self._get_daily_summaries_7days(device),
+            }
+
+            self.log.debug(f'[process_device] Données device {device.device_id}: {json.dumps(data, ensure_ascii=False)}')
+            await self.send_callback(data)
+
+        except Exception as e:
+            self.log.error(f'Erreur processing device {device.device_id}: {type(e).__name__}: {e}')
+
+    def _get_current_game(self, device) -> dict:
+        """Retourne le joueur actif le plus récent (pseudo + image profil)."""
+        history = self._get_player_history(device)
+        if history:
+            return {'name': history[0]['title'], 'image_url': history[0]['image']}
+        return {'name': '', 'image_url': ''}
+
+    def _build_game_meta_cache(self, device) -> dict:
+        """
+        Construit un dict {app_id_upper: {title, image}} depuis deux sources API Nintendo :
+        1. device.applications  — apps de la liste blanche (whitelistedApplicationList)
+                                   → app_obj.name + app_obj.image_url (URL icône Nintendo CDN)
+        2. player.apps          — jeux joués aujourd'hui (daily_summaries)
+                                   → meta.title + meta.imageUri
+        """
+        cache = {}
+        try:
+            # Source 1 : apps whitelistées — title + image_url fournis par Nintendo
+            applications = getattr(device, 'applications', None) or {}
+            for app_id, app_obj in applications.items():
+                title = getattr(app_obj, 'name', '') or ''
+                image = getattr(app_obj, 'image_url', '') or ''
+                if title or image:
+                    cache[app_id.upper()] = {'title': title, 'image': image}
+
+            # Source 2 : jeux joués aujourd'hui via player.apps (meta.title / meta.imageUri)
+            players = getattr(device, 'players', None) or {}
+            for player in players.values():
+                for app in (getattr(player, 'apps', None) or []):
+                    if not isinstance(app, dict):
+                        continue
+                    meta   = app.get('meta') or {}
+                    app_id = (meta.get('applicationId') or '').upper()
+                    title  = meta.get('title') or ''
+                    image  = meta.get('imageUri') or ''
+                    if app_id and (title or image) and app_id not in cache:
+                        cache[app_id] = {'title': title, 'image': image}
+        except Exception as e:
+            self.log.warning(f'[_build_game_meta_cache] Erreur: {e}')
+        self.log.debug(f'[_build_game_meta_cache] {len(cache)} jeux avec métadonnées API')
+        return cache
+
+    def _get_game_history(self, device, game_meta: dict = None) -> list:
+        """
+        Retourne les 5 jeux les plus joués sur les 7 derniers jours glissants.
+        Source principale : device.daily_summaries (7 dernières entrées)
+          → players[i].playedGames[j].meta : applicationId, title, imageUri, playingTime
+        Fallback : last_month_summary si daily_summaries est vide/CALCULATING.
+        """
+        if game_meta is None:
+            game_meta = {}
+        games: dict = {}
+
+        # ── Source 1 : daily_summaries 7 jours (titre + icône inclus) ──────
+        try:
+            daily = getattr(device, 'daily_summaries', None) or []
+            for day in daily[:7]:
+                if not isinstance(day, dict):
+                    continue
+                for player_day in (day.get('players') or []):
+                    for pg in (player_day.get('playedGames') or []):
+                        meta    = pg.get('meta') or {}
+                        app_id  = meta.get('applicationId') or ''
+                        minutes = int(pg.get('playingTime') or 0)
+                        if not app_id or minutes <= 0:
+                            continue
+                        if app_id not in games:
+                            games[app_id] = {
+                                'title':   meta.get('title') or game_meta.get(app_id.upper(), {}).get('title') or '__UNKNOWN__',
+                                'image':   meta.get('imageUri') or game_meta.get(app_id.upper(), {}).get('image') or '',
+                                'minutes': 0,
+                            }
+                        games[app_id]['minutes'] += minutes
+        except Exception as e:
+            self.log.warning(f'[_get_game_history] Erreur daily_summaries: {e}')
+
+        # ── Fallback : last_month_summary si aucune donnée 7j ───────────────
+        if not games:
+            try:
+                lms = getattr(device, 'last_month_summary', None)
+                if lms and isinstance(lms, dict):
+                    for day in (lms.get('overall', {}).get('dailyStats') or []):
+                        for app_id, game_data in (day.get('games') or {}).items():
+                            minutes = int(game_data.get('totalTime') or 0)
+                            if minutes <= 0:
+                                continue
+                            if app_id not in games:
+                                meta_entry = game_meta.get(app_id.upper(), {})
+                                games[app_id] = {
+                                    'title':   meta_entry.get('title') or '__UNKNOWN__',
+                                    'image':   meta_entry.get('image') or '',
+                                    'minutes': 0,
+                                }
+                            games[app_id]['minutes'] += minutes
+            except Exception as e:
+                self.log.warning(f'[_get_game_history] Erreur last_month_summary: {e}')
+
+        result = sorted(games.values(), key=lambda x: x['minutes'], reverse=True)
+        unknown_counter = 1
+        for g in result:
+            if g['title'] == '__UNKNOWN__':
+                g['title'] = f'Jeu #{unknown_counter}'
+                unknown_counter += 1
+        return result[:5]
+
+    def _get_player_history(self, device) -> list:
+        """
+        Retourne la liste des joueurs avec leur temps cumulé sur 7 jours glissants.
+        Source principale : device.daily_summaries[:7]
+          → players[i].profile : playerId, nickname, imageUri
+          → players[i].playingTime : minutes ce jour
+        Fallback : device.players (temps aujourd'hui seulement) si daily_summaries vide.
+        """
+        players_7d: dict = {}  # playerId → {title, image, minutes}
+
+        # ── Source 1 : daily_summaries 7 jours ──────────────────────────────
+        try:
+            daily = getattr(device, 'daily_summaries', None) or []
+            for day in daily[:7]:
+                if not isinstance(day, dict):
+                    continue
+                for player_day in (day.get('players') or []):
+                    profile   = player_day.get('profile') or {}
+                    player_id = profile.get('playerId') or ''
+                    nickname  = profile.get('nickname') or ''
+                    image     = profile.get('imageUri') or ''
+                    minutes   = int(player_day.get('playingTime') or 0)
+                    if not nickname:
+                        continue
+                    if player_id not in players_7d:
+                        players_7d[player_id] = {'title': nickname, 'image': image, 'minutes': 0}
+                    players_7d[player_id]['minutes'] += minutes
+        except Exception as e:
+            self.log.warning(f'[_get_player_history] Erreur daily_summaries: {e}')
+
+        result = list(players_7d.values())
+
+        # ── Fallback : last_month_summary.players[] ──────────────────────────
+        # Utilisé quand daily_summaries.players est vide (CALCULATING sur Switch 2).
+        # Cohérent avec le fallback jeux qui utilise aussi last_month_summary.
+        if not result:
+            try:
+                lms = getattr(device, 'last_month_summary', None)
+                if lms and isinstance(lms, dict):
+                    for p in (lms.get('players') or []):
+                        profile  = p.get('profile') or {}
+                        nickname = profile.get('nickname') or ''
+                        image    = profile.get('imageUri') or ''
+                        if not nickname:
+                            continue
+                        # Somme de tous les jours du mois pour ce joueur
+                        daily_stats = (p.get('summary') or {}).get('dailyStats') or []
+                        minutes = sum(int(d.get('totalTime') or 0) for d in daily_stats)
+                        result.append({'title': nickname, 'image': image, 'minutes': minutes})
+            except Exception as e:
+                self.log.warning(f'[_get_player_history] Erreur last_month_summary.players: {e}')
+
+        # ── Fallback final : nom de la console + total 7j ───────────────────
+        if not result:
+            name = getattr(device, 'name', '') or ''
+            if name:
+                total = sum(
+                    int(d.get('playingTime') or 0)
+                    for d in (getattr(device, 'daily_summaries', None) or [])[:7]
+                    if isinstance(d, dict)
+                )
+                result.append({'title': name, 'image': '', 'minutes': total})
+
+        self.log.debug(f'[_get_player_history] {len(result)} joueur(s) — 7j glissants')
+        result.sort(key=lambda x: x['minutes'], reverse=True)
+        return result
+
+    def _get_month_stat(self, device, key: str) -> int:
+        """Retourne une statistique mensuelle depuis last_month_summary.overall.stat."""
+        try:
+            lms = getattr(device, 'last_month_summary', None)
+            if lms and isinstance(lms, dict):
+                overall = lms.get('overall', {})
+                # Log de debug pour voir la structure complète (une seule fois par device)
+                return int(overall.get('stat', {}).get(key, 0) or 0)
+        except Exception:
+            pass
+        return 0
+
+    def _get_daily_summaries_7days(self, device) -> list:
+        """
+        Retourne les 7 derniers jours glissants avec les minutes jouées chaque jour.
+        Utilisé par le widget pour le graphique historique.
+        Format de sortie : [{'date': 'YYYY-MM-DD', 'minutes': N}, ...]
+        """
+        result = []
+        today  = datetime.now()
+        summaries = getattr(device, 'daily_summaries', None) or {}
+        by_date: dict = {}
+
+        try:
+            if isinstance(summaries, dict):
+                # Format dict : {date: {playingTime: X}} ou {date: minutes}
+                for key, val in summaries.items():
+                    if isinstance(val, dict):
+                        by_date[str(key)] = int(val.get('playingTime', 0) or 0)
+                    else:
+                        by_date[str(key)] = int(val or 0)
+            elif isinstance(summaries, list):
+                # Format list : [{date: ..., playingTime: ...}, ...]
+                for s in summaries:
+                    if isinstance(s, dict):
+                        d = s.get('date', '')
+                        if d:
+                            by_date[str(d)] = int(s.get('playingTime', 0) or 0)
+        except Exception as e:
+            self.log.warning(f'Erreur daily_summaries: {e}')
+
+        # Construire les 7 jours même si certains n'ont pas de données
+        for i in range(6, -1, -1):
+            d   = today - timedelta(days=i)
+            key = d.strftime('%Y-%m-%d')
+            result.append({'date': key, 'minutes': by_date.get(key, 0)})
+        return result
+
+    # ── Callback vers Jeedom (HTTP asynchrone — ne bloque pas la boucle) ─────
+
+    async def send_callback(self, data: dict):
+        """
+        Envoie les données d'un device à Jeedom via HTTP POST (asynchrone).
+        Utilise la session aiohttp partagée (self.http_session) créée dans run().
+        Si la session n'est pas disponible, crée une session temporaire.
+        Remplace l'ancienne implémentation basée sur requests.post() qui bloquait
+        la boucle asyncio pendant l'attente réseau.
+        """
+        device_id = data.get('device_id', '?')
+        self.log.debug(f'[send_callback] Envoi données vers Jeedom pour device {device_id}')
+
+        if self.http_session is None or self.http_session.closed:
+            # Cas de secours : créer une session temporaire (ne devrait pas arriver)
+            self.log.warning('[send_callback] Session HTTP non disponible — session temporaire')
+            async with aiohttp.ClientSession() as tmp:
+                await self._do_post_callback(tmp, data)
+            return
+
+        await self._do_post_callback(self.http_session, data)
+
+    async def _do_post_callback(self, session: aiohttp.ClientSession, data: dict):
+        """Exécute le POST HTTP vers callback.php avec gestion des erreurs."""
+        device_id = data.get('device_id', '?')
+        try:
+            async with session.post(
+                self.callback_url,
+                json=data,
+                timeout=aiohttp.ClientTimeout(total=5),
+                headers={'Content-Type': 'application/json'},
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    self.log.warning(f'[send_callback] Callback HTTP {resp.status} pour device {device_id}: {text[:200]}')
+                else:
+                    self.log.debug(f'[send_callback] Callback OK pour device {device_id}')
+        except aiohttp.ClientError as e:
+            self.log.error(f'[send_callback] Erreur réseau pour device {device_id}: {type(e).__name__}: {e}')
+        except asyncio.TimeoutError:
+            self.log.error(f'[send_callback] Timeout (5s) pour device {device_id} — Jeedom injoignable ?')
+
+    # ── Traitement des actions Jeedom → Nintendo ─────────────────────────────
+
+    async def handle_action(self, payload: dict) -> dict:
+        """
+        Traite une action Jeedom reçue via POST /action.
+        Actions supportées : refresh, suspend, add_bonus_time, set_daily_limit,
+                             set_restriction_mode, signaler, set_gamechat
+        """
+        action    = payload.get('action')
+        device_id = payload.get('device_id')
+        token     = payload.get('token', '')
+        self.log.info(f'Action reçue: {action} | device={device_id}')
+        self.log.debug(
+            f'[handle_action] token={"…" + token[-6:] if token else "ABSENT"} '
+            f'| payload_keys={list(payload.keys())}'
+        )
+
+        # Enregistrer le device sur ce compte (pour filtrer le polling)
+        if token and device_id:
+            was_new = device_id not in self.token_devices.get(token, set())
+            self.token_devices.setdefault(token, set()).add(device_id)
+            if was_new:
+                self.log.debug(f'[handle_action] device {device_id} enregistré sur token …{token[-6:]}')
+
+        # Connexion Nintendo (ou réutilisation si déjà connecté)
+        api = await self.get_or_connect(token)
+        if api is None:
+            self.log.error('[handle_action] Connexion impossible — token absent ou invalide')
+            return {'status': 'error', 'message': 'Token manquant ou invalide'}
+
+        # Trouver le device dans le cache ; rafraîchir si absent
+        async with self._get_lock(token):
+            device = (api.devices or {}).get(device_id)
+            if device is None:
+                self.log.debug(f'[handle_action] Device {device_id} absent du cache — api.update()')
+                await api.update()
+                device = (api.devices or {}).get(device_id)
+                self.log.debug(f'[handle_action] Après update: device {"trouvé" if device else "INTROUVABLE"}')
+
+        if device is None:
+            self.log.error(f'[handle_action] Device {device_id} introuvable dans l\'API Nintendo')
+            return {'status': 'error', 'message': f'Device {device_id} introuvable'}
+
+        # Exécuter l'action sous verrou pour éviter les conflits avec le polling
+        async with self._get_lock(token):
+            try:
+                if action == 'suspend':
+                    # Suspend : met la limite à 0 (blocage immédiat) ou -1 (illimité)
+                    suspended = payload.get('suspended', True)
+                    self.log.debug(f'[handle_action] suspend={suspended} → update_max_daily_playtime({0 if suspended else -1})')
+                    await device.update_max_daily_playtime(0 if suspended else -1)
+                    self.log.info(f'Console {device_id} {"bloquée" if suspended else "débloquée"}')
+                    return {'status': 'ok', 'suspended': suspended}
+
+                elif action == 'add_bonus_time':
+                    minutes = int(payload.get('minutes', 15))
+                    self.log.debug(f'[handle_action] add_bonus_time {minutes} min pour device {device_id}')
+                    await device.add_extra_time(minutes)
+                    self.log.info(f'+{minutes} minutes de bonus ajoutées pour device {device_id}')
+                    return {'status': 'ok', 'bonus_minutes': minutes}
+
+                elif action == 'set_daily_limit':
+                    minutes = int(payload.get('minutes', 120))
+                    self.log.debug(f'[handle_action] set_daily_limit {minutes} min pour device {device_id}')
+                    await device.update_max_daily_playtime(minutes)
+                    self.log.info(f'Limite quotidienne fixée à {minutes} min pour device {device_id}')
+                    return {'status': 'ok', 'daily_limit': minutes}
+
+                elif action == 'set_restriction_mode':
+                    # mode 'forced' → FORCED_TERMINATION (coupe la console)
+                    # mode 'alarm'  → ALARM (envoie une alerte sans couper)
+                    mode_str = payload.get('mode', 'alarm')
+                    mode = RestrictionMode.FORCED_TERMINATION if mode_str == 'forced' else RestrictionMode.ALARM
+                    self.log.debug(f'[handle_action] set_restriction_mode={mode_str} ({mode}) pour device {device_id}')
+                    await device.set_restriction_mode(mode)
+                    self.log.info(f'Mode restriction → {mode_str} pour device {device_id}')
+                    return {'status': 'ok', 'mode': mode_str}
+
+                elif action == 'subtract_time':
+                    minutes = int(payload.get('minutes', 15))
+                    current = getattr(device, 'limit_time', None)
+                    if current is None or int(current) < 0:
+                        self.log.warning(f'[handle_action] subtract_time ignoré : aucune limite configurée pour {device_id}')
+                        return {'status': 'error', 'message': 'Aucune limite quotidienne configurée'}
+                    new_limit = max(0, int(current) - minutes)
+                    self.log.debug(f'[handle_action] subtract_time {minutes} min : {current} → {new_limit} pour {device_id}')
+                    await device.update_max_daily_playtime(new_limit)
+                    self.log.info(f'Limite réduite de {minutes} min → {new_limit} min pour {device_id}')
+                    return {'status': 'ok', 'new_limit': new_limit}
+
+                elif action == 'signaler':
+                    # Action de signalement : enregistrement local (pas d'API Nintendo)
+                    self.log.info(f'Signalement reçu pour device {device_id}')
+                    return {'status': 'ok', 'message': 'Signalement enregistré'}
+
+                elif action == 'set_gamechat':
+                    # GameChat non supporté par pynintendoparental (Switch 2 uniquement, API non publique)
+                    self.log.warning(f'[handle_action] set_gamechat non supporté par pynintendoparental')
+                    return {'status': 'error', 'message': 'GameChat non supporté par la bibliothèque'}
+
+                elif action == 'refresh':
+                    # Forcer un fetch immédiat (verrou déjà tenu par ce bloc)
+                    self.log.debug(f'[handle_action] refresh explicite pour device {device_id}')
+                    await self._do_fetch(token, api)
+                    self.log.debug(f'[handle_action] refresh terminé pour device {device_id}')
+                    return {'status': 'ok'}
+
+                else:
+                    self.log.warning(f'[handle_action] Action inconnue : {action}')
+                    return {'status': 'error', 'message': f'Action inconnue: {action}'}
+
+            except Exception as e:
+                self.log.error(f'Erreur exécution action {action} pour device {device_id}: {type(e).__name__}: {e}')
+                return {'status': 'error', 'message': str(e)}
+
+    # ── Serveur HTTP aiohttp (même boucle asyncio — pas de thread) ───────────
+
+    async def _handle_http_action(self, request: web.Request) -> web.Response:
+        """
+        Endpoint POST /action du mini-serveur HTTP.
+        Reçoit les commandes de Jeedom (sendToDaemon) et retourne le résultat JSON.
+        Tourne dans la même boucle asyncio que le polling — pas de blocage.
+        """
+        try:
+            payload = await request.json()
+        except Exception as e:
+            self.log.warning(f'[http] Corps JSON invalide : {e}')
+            return web.Response(status=400, text='JSON invalide')
+
+        action    = payload.get('action', '?')
+        device_id = payload.get('device_id', '?')
+        self.log.debug(f'[http] POST /action — action={action} | device={device_id}')
+
+        result = await self.handle_action(payload)
+        return web.Response(
+            content_type='application/json',
+            body=json.dumps(result).encode(),
+        )
+
+    # ── Boucle principale ────────────────────────────────────────────────────
+
+    async def run(self):
+        """
+        Point d'entrée de la boucle asyncio du démon.
+        1. Démarre le serveur HTTP aiohttp (sur 127.0.0.1:{port})
+        2. Ouvre la session HTTP pour les callbacks Jeedom
+        3. Lance la boucle de polling Nintendo
+        4. Ferme proprement tout à l'arrêt
+        """
+        # ── Démarrer le serveur HTTP aiohttp ─────────────────────────────────
+        app = web.Application()
+        app.router.add_post('/action', self._handle_http_action)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '127.0.0.1', self.port)
+        await site.start()
+        self.log.info(f'Serveur HTTP démon démarré sur 127.0.0.1:{self.port} (aiohttp natif)')
+
+        # ── Ouvrir la session HTTP partagée pour les callbacks Jeedom ────────
+        # async with garantit la fermeture propre même en cas d'exception
+        async with aiohttp.ClientSession() as self.http_session:
+            self.log.info(
+                'Démon JeeNinSwi démarré — en attente des actions Jeedom sur le port %d',
+                self.port
+            )
+            self.log.debug(
+                f'[run] PID={os.getpid()} | poll_interval={self.poll_interval}s '
+                f'| poll_cron={self.poll_cron} | callback={self.callback_url}'
+            )
+
+            # ── Boucle de polling Nintendo ────────────────────────────────────
+            # Attend poll_interval secondes, puis poll tous les comptes connectés.
+            # Les comptes sont connectés dynamiquement via les actions Jeedom (handle_action).
+            while self.running:
+                await asyncio.sleep(self.poll_interval)
+                if not self.running:
+                    break
+                if self.apis:
+                    self.log.debug('Polling %d compte(s) Nintendo...', len(self.apis))
+                    await self.fetch_all_devices()
+                else:
+                    self.log.debug(
+                        '[run] Aucun compte connecté — prochain poll dans %ds. '
+                        'Utilisez le bouton Rafraîchir sur un équipement pour déclencher la connexion.',
+                        self.poll_interval
+                    )
+
+        # ── Nettoyage à l'arrêt ───────────────────────────────────────────────
+        self.log.info('[run] Fermeture des sessions Nintendo...')
+        for token in list(self.auth_sessions.keys()):
+            await self._close_token_session(token)
+        await runner.cleanup()
+        self.log.info('[run] Démon arrêté proprement.')
+
+
+# ─── Point d'entrée CLI ───────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(
+        description='JeeNinSwi Daemon — Nintendo Switch Parental Controls pour Jeedom'
+    )
+    parser.add_argument(
+        '--device-ids', default='[]',
+        help='JSON array des device IDs à superviser (ex: ["abc123"])'
+    )
+    parser.add_argument(
+        '--port', type=int, default=8347,
+        help='Port HTTP du démon (doit correspondre à DAEMON_PORT_DEFAULT dans la classe PHP)'
+    )
+    parser.add_argument(
+        '--callback', required=True,
+        help='URL callback Jeedom (core/php/callback.php?apikey=...)'
+    )
+    parser.add_argument(
+        '--poll-cron', default='*/5 * * * *',
+        help='Expression cron pour le polling Nintendo (ex: */5 * * * * = toutes les 5 min)'
+    )
+    parser.add_argument(
+        '--pid-file', required=True,
+        help='Fichier PID du démon (utilisé par Jeedom pour vérifier l\'état)'
+    )
+    parser.add_argument(
+        '--log-file', default='',
+        help='Fichier de log (vide = stdout). Doit correspondre au log Jeedom du plugin.'
+    )
+    parser.add_argument(
+        '--debug', action='store_true',
+        help='Mode debug : logs très verbeux (niveau DEBUG)'
+    )
+    args = parser.parse_args()
+
+    daemon = JeeNinSwiDaemon(args)
+    asyncio.run(daemon.run())
+
+
+if __name__ == '__main__':
+    main()

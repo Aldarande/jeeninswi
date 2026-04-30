@@ -1,6 +1,14 @@
 <?php
 require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
 
+// SECURITY: restreindre aux appels locaux uniquement (le démon tourne sur 127.0.0.1)
+$remote_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+if ($remote_ip !== '127.0.0.1' && $remote_ip !== '::1') {
+    log::add('jeeninswi', 'warning', 'callback.php : IP non autorisée (' . $remote_ip . ')');
+    http_response_code(403);
+    die('Forbidden');
+}
+
 // Vérification par clé API (fonctionne quel que soit le réseau Docker/local)
 $apikey = $_GET['apikey'] ?? $_POST['apikey'] ?? '';
 if (empty($apikey) || $apikey !== jeedom::getApiKey('jeeninswi')) {

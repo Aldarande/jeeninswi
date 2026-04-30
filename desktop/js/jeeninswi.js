@@ -6,6 +6,10 @@ var NINSWI_AJAX = 'plugins/jeeninswi/core/ajax/jeeninswi.ajax.php';
 // ─── Initialisation ──────────────────────────────────────────────────────────
 $(document).ready(function () {
 
+    $('#bt_donJeeNinSwi').on('click', function () {
+        $('#modal_donJeeNinSwi').modal('show');
+    });
+
     // Ouvrir l'assistant token depuis l'onglet équipement
     $('#bt_openTokenWizard').on('click', function () {
         $('#md_modal').dialog({ title: 'Assistant Token Nintendo' });

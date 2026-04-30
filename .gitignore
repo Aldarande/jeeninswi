@@ -1,0 +1,17 @@
+# Claude Code (settings locaux)
+.claude/
+.vscode/
+# Logs Jeedom
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.bak
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# Dépendances Python installées localement
+resources/jeeninswid/vendor/
+CLAUDE.md

@@ -31,8 +31,17 @@ import sys
 import time
 from datetime import datetime, timedelta   # Imports à ce niveau pour éviter les imports dynamiques
 
+import hashlib
+
 import aiohttp
 from aiohttp import web
+
+# ─── Chemins cache images ─────────────────────────────────────────────────────
+# jeeninswid.py est dans plugins/jeeninswi/resources/jeeninswid/ → remonter 4 niveaux
+_DAEMON_DIR   = os.path.dirname(os.path.abspath(__file__))
+_JEEDOM_ROOT  = os.path.normpath(os.path.join(_DAEMON_DIR, '..', '..', '..', '..'))
+IMG_CACHE_DIR = os.path.join(_JEEDOM_ROOT, 'data', 'jeeninswi', 'images')
+IMG_CACHE_WEB = 'data/jeeninswi/images'  # URL relative dans le navigateur
 
 # croniter : si installé, permet un polling précis selon une expression cron
 try:
@@ -116,6 +125,17 @@ class JeeNinSwiDaemon:
         # http_session : session aiohttp partagée pour les callbacks vers Jeedom
         # Initialisée dans run() pour être dans la même boucle asyncio
         self.http_session        = None
+
+        # Pré-remplir token_devices depuis l'argument --tokens (mapping token → [device_ids])
+        try:
+            tokens_map = json.loads(args.tokens) if args.tokens else {}
+            for token, device_ids in tokens_map.items():
+                if token:
+                    self.token_devices[token] = set(device_ids)
+                    self.log.debug(f'[init] Token …{token[-6:]} pré-enregistré avec {len(device_ids)} device(s): {device_ids}')
+            self.log.info(f'[init] {len(self.token_devices)} compte(s) Nintendo pré-chargé(s) au démarrage')
+        except Exception as e:
+            self.log.error(f'[init] Erreur parsing --tokens: {e}')
 
         # ── Écrire le PID pour que Jeedom puisse surveiller le processus ────
         with open(self.pid_file, 'w') as f:
@@ -335,20 +355,50 @@ class JeeNinSwiDaemon:
             # Contient meta.title et meta.imageUri fournis par l'API Nintendo
             game_meta = self._build_game_meta_cache(device)
 
+            # Télécharger et cacher localement les images de jeux (évite CORS/auth Nintendo)
+            for entry in game_meta.values():
+                if entry.get('image', '').startswith('http'):
+                    entry['image'] = await self._cache_image(entry['image'])
+
+            # Historiques (utilisent game_meta avec URLs locales)
+            player_history = self._get_player_history(device)
+            for p in player_history:
+                if p.get('image', '').startswith('http'):
+                    p['image'] = await self._cache_image(p['image'])
+
+            current_game = (
+                {'name': player_history[0]['title'], 'image_url': player_history[0]['image']}
+                if player_history else {'name': '', 'image_url': ''}
+            )
+
+            playtime_today  = int(getattr(device, 'today_playing_time', 0) or 0)
+            time_remaining  = (-1 if limit_time in (None, -1)
+                               else int(getattr(device, 'today_time_remaining', 0) or 0))
+            # limit_time est déjà la limite effective du jour (reflète la règle par-jour)
+            daily_limit_today = int(limit_time) if limit_time not in (None, -1) else -1
+
+            # Log INFO : mode de planification + limite effective
+            timer_mode = getattr(device, 'timer_mode', None)
+            self.log.info(
+                f'[schedule] {device.device_id} — timer_mode={timer_mode} | '
+                f'limit_time={limit_time} | today_playing={playtime_today} | '
+                f'today_remaining={time_remaining} | daily_limit={daily_limit_today}'
+            )
+
             data = {
                 'device_id':        device.device_id,
                 'nickname':         device.name or '',
                 'avatar_url':       '',  # Non exposé par pynintendoparental
                 'online_status':    'online',
-                'current_game':     self._get_current_game(device),
-                'playtime_today':   int(getattr(device, 'today_playing_time', 0) or 0),
+                'current_game':     current_game,
+                'playtime_today':   playtime_today,
                 'playtime_month':   int(getattr(device, 'month_playing_time', 0) or 0),
                 # -1 = pas de limite configurée (limit_time = None ou -1)
                 # sinon : minutes restantes réelles (peut être 0 = temps épuisé)
-                'time_remaining':   -1 if limit_time in (None, -1) else int(getattr(device, 'today_time_remaining', 0)),
-                'daily_limit':      int(limit_time) if (limit_time is not None and int(limit_time) >= 0) else -1,
+                'time_remaining':   time_remaining,
+                'daily_limit':      daily_limit_today,
                 'game_history':     self._get_game_history(device, game_meta),
-                'player_history':   self._get_player_history(device),
+                'player_history':   player_history,
                 'disabled_today':   int(getattr(device, 'today_disabled_time', 0) or 0),
                 'exceeded_today':   int(getattr(device, 'today_exceeded_time', 0) or 0),
                 'month_days':       self._get_month_stat(device, 'totalDays'),
@@ -357,6 +407,7 @@ class JeeNinSwiDaemon:
                 'suspended':        suspended,
                 'restriction_mode': restriction_mode,
                 'daily_summaries':  self._get_daily_summaries_7days(device),
+                'last_sync':        datetime.now().strftime('%d/%m/%Y %H:%M'),
             }
 
             self.log.debug(f'[process_device] Données device {device.device_id}: {json.dumps(data, ensure_ascii=False)}')
@@ -365,46 +416,150 @@ class JeeNinSwiDaemon:
         except Exception as e:
             self.log.error(f'Erreur processing device {device.device_id}: {type(e).__name__}: {e}')
 
-    def _get_current_game(self, device) -> dict:
-        """Retourne le joueur actif le plus récent (pseudo + image profil)."""
-        history = self._get_player_history(device)
-        if history:
-            return {'name': history[0]['title'], 'image_url': history[0]['image']}
-        return {'name': '', 'image_url': ''}
+    @staticmethod
+    def _to_str(val) -> str:
+        """
+        Extrait une URL (str) depuis une valeur qui peut être str, dict ou list.
+        imageUri dans pynintendoparental peut être un dict {size: url} ou une str directe.
+        """
+        if not val:
+            return ''
+        if isinstance(val, str):
+            return val
+        if isinstance(val, dict):
+            # Ex : {"small": "https://...", "large": "https://..."} → premier http trouvé
+            for v in val.values():
+                if isinstance(v, str) and v.startswith('http'):
+                    return v
+        if isinstance(val, (list, tuple)) and val:
+            return JeeNinSwiDaemon._to_str(val[0])
+        return ''
+
+    @staticmethod
+    def _val(obj, *keys):
+        """Lit obj[key] ou obj.key (supporte dict et objet Python)."""
+        for key in keys:
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                obj = obj.get(key)
+            else:
+                obj = getattr(obj, key, None)
+        return obj
+
+    async def _cache_image(self, url: str) -> str:
+        """
+        Télécharge une image Nintendo et la stocke dans data/jeeninswi/images/.
+        Retourne l'URL locale (servie par Jeedom) si succès, sinon l'URL originale.
+        Les images déjà présentes en cache local sont réutilisées sans re-téléchargement.
+        """
+        if not url or not url.startswith('http'):
+            return url
+
+        path_part = url.split('?')[0].rsplit('/', 1)[-1]
+        ext = path_part.rsplit('.', 1)[-1][:4].lower() if '.' in path_part else 'jpg'
+        if ext not in ('jpg', 'jpeg', 'png', 'webp', 'gif'):
+            ext = 'jpg'
+        filename  = hashlib.md5(url.encode()).hexdigest() + '.' + ext
+        local_path = os.path.join(IMG_CACHE_DIR, filename)
+        web_path   = f'{IMG_CACHE_WEB}/{filename}'
+
+        if os.path.exists(local_path):
+            return web_path
+
+        session = self.http_session
+        if session is None or session.closed:
+            return url
+
+        try:
+            os.makedirs(IMG_CACHE_DIR, exist_ok=True)
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10),
+                                   allow_redirects=True) as resp:
+                if resp.status == 200:
+                    content = await resp.read()
+                    if content:
+                        with open(local_path, 'wb') as f:
+                            f.write(content)
+                        self.log.debug(f'[image_cache] {filename} ({len(content)}o)')
+                        return web_path
+                else:
+                    self.log.debug(f'[image_cache] HTTP {resp.status} — {url[:70]}')
+        except asyncio.TimeoutError:
+            self.log.debug(f'[image_cache] Timeout — {url[:70]}')
+        except Exception as e:
+            self.log.debug(f'[image_cache] Erreur {type(e).__name__} — {url[:70]}')
+
+        return url
 
     def _build_game_meta_cache(self, device) -> dict:
         """
-        Construit un dict {app_id_upper: {title, image}} depuis deux sources API Nintendo :
-        1. device.applications  — apps de la liste blanche (whitelistedApplicationList)
-                                   → app_obj.name + app_obj.image_url (URL icône Nintendo CDN)
-        2. player.apps          — jeux joués aujourd'hui (daily_summaries)
-                                   → meta.title + meta.imageUri
+        Construit {APP_ID_UPPER: {title, image}} en essayant toutes les sources
+        disponibles dans pynintendoparental (dict ou objet).
         """
         cache = {}
-        try:
-            # Source 1 : apps whitelistées — title + image_url fournis par Nintendo
-            applications = getattr(device, 'applications', None) or {}
-            for app_id, app_obj in applications.items():
-                title = getattr(app_obj, 'name', '') or ''
-                image = getattr(app_obj, 'image_url', '') or ''
-                if title or image:
-                    cache[app_id.upper()] = {'title': title, 'image': image}
 
-            # Source 2 : jeux joués aujourd'hui via player.apps (meta.title / meta.imageUri)
-            players = getattr(device, 'players', None) or {}
-            for player in players.values():
-                for app in (getattr(player, 'apps', None) or []):
-                    if not isinstance(app, dict):
-                        continue
-                    meta   = app.get('meta') or {}
-                    app_id = (meta.get('applicationId') or '').upper()
-                    title  = meta.get('title') or ''
-                    image  = meta.get('imageUri') or ''
+        # ── Source 1 : daily_summaries → players → playedGames → meta ────────
+        try:
+            daily = getattr(device, 'daily_summaries', None) or []
+            self.log.debug(f'[meta_cache] daily_summaries : {len(daily)} entrées, type[0]={type(daily[0]).__name__ if daily else "—"}')
+            for day in daily[:7]:
+                players_list = self._val(day, 'players') or []
+                for p in players_list:
+                    for pg in (self._val(p, 'playedGames') or self._val(p, 'played_games') or []):
+                        meta   = self._val(pg, 'meta') or {}
+                        app_id = (self._val(meta, 'applicationId') or '').upper()
+                        title  = self._val(meta, 'title') or ''
+                        image  = self._to_str(self._val(meta, 'imageUri') or self._val(meta, 'imageUrl'))
+                        if app_id and (title or image) and app_id not in cache:
+                            cache[app_id] = {'title': title, 'image': image}
+        except Exception as e:
+            self.log.warning(f'[meta_cache] daily_summaries erreur: {e}')
+
+        self.log.debug(f'[meta_cache] après daily_summaries : {len(cache)} jeux')
+
+        # ── Source 2 : device.players (session courante) ─────────────────────
+        try:
+            players = getattr(device, 'players', None) or []
+            if isinstance(players, dict):
+                players = list(players.values())
+            for player in players:
+                apps = (self._val(player, 'apps') or self._val(player, 'applications') or [])
+                for app in apps:
+                    app_id = (self._val(app, 'application_id') or
+                              self._val(app, 'applicationId') or '').upper()
+                    title  = (self._val(app, 'name') or
+                              self._val(app, 'title') or '')
+                    image  = self._to_str(self._val(app, 'image_uri') or
+                                          self._val(app, 'imageUri') or
+                                          self._val(app, 'image_url'))
                     if app_id and (title or image) and app_id not in cache:
                         cache[app_id] = {'title': title, 'image': image}
         except Exception as e:
-            self.log.warning(f'[_build_game_meta_cache] Erreur: {e}')
-        self.log.debug(f'[_build_game_meta_cache] {len(cache)} jeux avec métadonnées API')
+            self.log.warning(f'[meta_cache] device.players erreur: {e}')
+
+        self.log.debug(f'[meta_cache] après device.players : {len(cache)} jeux')
+
+        # ── Source 3 : device.applications (liste blanche) ───────────────────
+        try:
+            applications = getattr(device, 'applications', None) or {}
+            if isinstance(applications, list):
+                applications = {getattr(a, 'id', str(i)): a for i, a in enumerate(applications)}
+            for app_id, app_obj in applications.items():
+                key = app_id.upper()
+                if key in cache:
+                    continue
+                title = (self._val(app_obj, 'name') or self._val(app_obj, 'title') or '')
+                image = self._to_str(
+                    self._val(app_obj, 'image_url') or self._val(app_obj, 'imageUrl') or
+                    self._val(app_obj, 'image_uri') or self._val(app_obj, 'imageUri')
+                )
+                if title or image:
+                    cache[key] = {'title': title, 'image': image}
+        except Exception as e:
+            self.log.warning(f'[meta_cache] applications erreur: {e}')
+
+        self.log.info(f'[meta_cache] TOTAL : {len(cache)} jeux — ' +
+                      (', '.join(f'{v["title"]}(img={bool(v["image"])})' for v in list(cache.values())[:8])))
         return cache
 
     def _get_game_history(self, device, game_meta: dict = None) -> list:
@@ -422,19 +577,25 @@ class JeeNinSwiDaemon:
         try:
             daily = getattr(device, 'daily_summaries', None) or []
             for day in daily[:7]:
-                if not isinstance(day, dict):
-                    continue
-                for player_day in (day.get('players') or []):
-                    for pg in (player_day.get('playedGames') or []):
-                        meta    = pg.get('meta') or {}
-                        app_id  = meta.get('applicationId') or ''
-                        minutes = int(pg.get('playingTime') or 0)
+                for player_day in (self._val(day, 'players') or []):
+                    for pg in (self._val(player_day, 'playedGames') or
+                               self._val(player_day, 'played_games') or []):
+                        meta    = self._val(pg, 'meta') or {}
+                        app_id  = self._val(meta, 'applicationId') or ''
+                        minutes = int(self._val(pg, 'playingTime') or 0)
                         if not app_id or minutes <= 0:
                             continue
+                        image = self._to_str(
+                            self._val(meta, 'imageUri') or
+                            self._val(meta, 'imageUrl') or
+                            game_meta.get(app_id.upper(), {}).get('image')
+                        )
                         if app_id not in games:
                             games[app_id] = {
-                                'title':   meta.get('title') or game_meta.get(app_id.upper(), {}).get('title') or '__UNKNOWN__',
-                                'image':   meta.get('imageUri') or game_meta.get(app_id.upper(), {}).get('image') or '',
+                                'app_id': app_id,
+                                'title':  (self._val(meta, 'title') or
+                                           game_meta.get(app_id.upper(), {}).get('title') or '__UNKNOWN__'),
+                                'image':  image,
                                 'minutes': 0,
                             }
                         games[app_id]['minutes'] += minutes
@@ -454,6 +615,7 @@ class JeeNinSwiDaemon:
                             if app_id not in games:
                                 meta_entry = game_meta.get(app_id.upper(), {})
                                 games[app_id] = {
+                                    'app_id': app_id,
                                     'title':   meta_entry.get('title') or '__UNKNOWN__',
                                     'image':   meta_entry.get('image') or '',
                                     'minutes': 0,
@@ -468,6 +630,9 @@ class JeeNinSwiDaemon:
             if g['title'] == '__UNKNOWN__':
                 g['title'] = f'Jeu #{unknown_counter}'
                 unknown_counter += 1
+        if result:
+            sample = result[0]
+            self.log.info(f'[game_history] {len(result)} jeux — ex: "{sample["title"]}" img="{sample["image"][:80] if sample["image"] else "(vide)"}"')
         return result[:5]
 
     def _get_player_history(self, device) -> list:
@@ -490,7 +655,7 @@ class JeeNinSwiDaemon:
                     profile   = player_day.get('profile') or {}
                     player_id = profile.get('playerId') or ''
                     nickname  = profile.get('nickname') or ''
-                    image     = profile.get('imageUri') or ''
+                    image     = self._to_str(profile.get('imageUri'))
                     minutes   = int(player_day.get('playingTime') or 0)
                     if not nickname:
                         continue
@@ -512,7 +677,7 @@ class JeeNinSwiDaemon:
                     for p in (lms.get('players') or []):
                         profile  = p.get('profile') or {}
                         nickname = profile.get('nickname') or ''
-                        image    = profile.get('imageUri') or ''
+                        image    = self._to_str(profile.get('imageUri'))
                         if not nickname:
                             continue
                         # Somme de tous les jours du mois pour ce joueur
@@ -549,40 +714,136 @@ class JeeNinSwiDaemon:
             pass
         return 0
 
-    def _get_daily_summaries_7days(self, device) -> list:
+    def _get_week_schedule(self, device) -> list:
         """
-        Retourne les 7 derniers jours glissants avec les minutes jouées chaque jour.
-        Utilisé par le widget pour le graphique historique.
-        Format de sortie : [{'date': 'YYYY-MM-DD', 'minutes': N}, ...]
+        Retourne les limites par jour [lun, mar, mer, jeu, ven, sam, dim] en minutes.
+        Source : device.parental_control_settings["playTimerRegulations"]
+          - timerMode == "EACH_DAY_OF_THE_WEEK" → eachDayOfTheWeekRegulations{DAY: {timeToPlayInOneDay: {limitTime}}}
+          - timerMode == "DAILY" → dailyRegulations{timeToPlayInOneDay: {limitTime}}
         """
-        result = []
-        today  = datetime.now()
-        summaries = getattr(device, 'daily_summaries', None) or {}
-        by_date: dict = {}
+        global_lim = int(getattr(device, 'limit_time', -1) or -1)
+        result = [global_lim] * 7
+
+        DAY_TO_DOW = {
+            'MONDAY': 0, 'TUESDAY': 1, 'WEDNESDAY': 2, 'THURSDAY': 3,
+            'FRIDAY': 4, 'SATURDAY': 5, 'SUNDAY': 6,
+        }
 
         try:
-            if isinstance(summaries, dict):
-                # Format dict : {date: {playingTime: X}} ou {date: minutes}
-                for key, val in summaries.items():
-                    if isinstance(val, dict):
-                        by_date[str(key)] = int(val.get('playingTime', 0) or 0)
-                    else:
-                        by_date[str(key)] = int(val or 0)
-            elif isinstance(summaries, list):
-                # Format list : [{date: ..., playingTime: ...}, ...]
-                for s in summaries:
-                    if isinstance(s, dict):
-                        d = s.get('date', '')
-                        if d:
-                            by_date[str(d)] = int(s.get('playingTime', 0) or 0)
-        except Exception as e:
-            self.log.warning(f'Erreur daily_summaries: {e}')
+            pcs = getattr(device, 'parental_control_settings', None) or {}
+            ptr = (pcs.get('playTimerRegulations') if isinstance(pcs, dict) else {}) or {}
 
-        # Construire les 7 jours même si certains n'ont pas de données
-        for i in range(6, -1, -1):
+            if not ptr:
+                self.log.info(f'[week_schedule] parental_control_settings absent ou vide — fallback {global_lim} min')
+                return result
+
+            timer_mode = str(ptr.get('timerMode', ''))
+            self.log.info(f'[week_schedule] timerMode={timer_mode} | global_lim={global_lim}')
+
+            if timer_mode == 'EACH_DAY_OF_THE_WEEK':
+                each_day = ptr.get('eachDayOfTheWeekRegulations') or {}
+                for day_name, reg in each_day.items():
+                    dow = DAY_TO_DOW.get(day_name.upper())
+                    if dow is None:
+                        continue
+                    lim = ((reg.get('timeToPlayInOneDay') or {}).get('limitTime')
+                           if isinstance(reg, dict) else None)
+                    if lim is not None:
+                        result[dow] = int(lim)
+                self.log.info(f'[week_schedule] EACH_DAY_OF_THE_WEEK → {result}')
+
+            else:
+                # DAILY : même limite pour tous les jours
+                daily = ptr.get('dailyRegulations') or {}
+                lim = (daily.get('timeToPlayInOneDay') or {}).get('limitTime')
+                if lim is not None:
+                    result = [int(lim)] * 7
+                self.log.info(f'[week_schedule] DAILY → {result}')
+
+        except Exception as e:
+            self.log.warning(f'[week_schedule] {type(e).__name__}: {e}')
+
+        return result
+
+    def _get_daily_summaries_7days(self, device) -> list:
+        """
+        Retourne les 7 derniers jours glissants avec le total de minutes et le détail par jeu.
+        Format : [{'date': 'YYYY-MM-DD', 'minutes': N, 'games': [{app_id, title, minutes}]}]
+        Correction : le total est sommé depuis players[].playingTime, pas depuis un champ
+        top-level inexistant dans la structure de l'API Nintendo.
+        """
+        result = []
+        today     = datetime.now()
+        summaries = getattr(device, 'daily_summaries', None) or []
+        by_date: dict = {}
+
+        # Log de la structure brute du premier résumé (une seule fois, aide au debug)
+        if summaries and isinstance(summaries, list) and summaries[0] is not None:
+            s0 = summaries[0]
+            if isinstance(s0, dict):
+                self.log.debug(f'[daily_summaries] keys summary[0]: {list(s0.keys())}')
+            else:
+                attrs = [a for a in dir(s0) if not a.startswith('_')]
+                self.log.debug(f'[daily_summaries] attrs summary[0]: {attrs[:30]}')
+
+        try:
+            if isinstance(summaries, list):
+                for s in summaries:
+                    d = str(self._val(s, 'date') or '')
+                    if not d:
+                        continue
+                    entry = by_date.setdefault(d, {'minutes': 0, 'games': {}, 'limit': -1})
+                    # Limite configurée pour ce jour — teste tous les noms de champ connus
+                    day_lim = int(
+                        self._val(s, 'maxTime') or self._val(s, 'maxPlayTime') or
+                        self._val(s, 'limitTime') or self._val(s, 'limit') or
+                        self._val(s, 'playLimitTime') or self._val(s, 'dailyMaxPlayTime') or
+                        self._val(s, 'max_time') or self._val(s, 'time_limit') or -1
+                    )
+                    if day_lim >= 0:
+                        entry['limit'] = day_lim
+                    for player_day in (self._val(s, 'players') or []):
+                        entry['minutes'] += int(self._val(player_day, 'playingTime') or 0)
+                        for pg in (self._val(player_day, 'playedGames') or
+                                   self._val(player_day, 'played_games') or []):
+                            meta   = self._val(pg, 'meta') or {}
+                            app_id = self._val(meta, 'applicationId') or ''
+                            title  = self._val(meta, 'title') or ''
+                            mins   = int(self._val(pg, 'playingTime') or 0)
+                            if app_id and mins > 0:
+                                g = entry['games'].setdefault(app_id, {'title': title, 'minutes': 0})
+                                g['minutes'] += mins
+            elif isinstance(summaries, dict):
+                for key, val in summaries.items():
+                    minutes = int((val.get('playingTime', 0) if isinstance(val, dict) else val) or 0)
+                    lim = int((val.get('maxTime', -1) or val.get('limit', -1)) if isinstance(val, dict) else -1)
+                    by_date[str(key)] = {'minutes': minutes, 'games': {}, 'limit': lim}
+        except Exception as e:
+            self.log.warning(f'[_get_daily_summaries_7days] Erreur: {e}')
+
+        # Récupérer le planning hebdomadaire pour les jours sans limite explicite
+        week_schedule = self._get_week_schedule(device)
+
+        for i in range(7, 0, -1):
             d   = today - timedelta(days=i)
             key = d.strftime('%Y-%m-%d')
-            result.append({'date': key, 'minutes': by_date.get(key, 0)})
+            dow = d.weekday()  # 0=lun, 6=dim
+            entry = by_date.get(key, {})
+            day_limit = entry.get('limit', -1)
+            # Fallback : planning hebdomadaire si la limite n'est pas dans les summaries
+            if day_limit < 0 and 0 <= dow < 7:
+                day_limit = week_schedule[dow]
+            games_list = sorted(
+                [{'app_id': k, 'title': v['title'], 'minutes': v['minutes']}
+                 for k, v in entry.get('games', {}).items()],
+                key=lambda x: x['minutes'], reverse=True
+            )
+            result.append({
+                'date':    key,
+                'minutes': entry.get('minutes', 0),
+                'games':   games_list,
+                'limit':   day_limit,
+            })
         return result
 
     # ── Callback vers Jeedom (HTTP asynchrone — ne bloque pas la boucle) ─────
@@ -683,6 +944,9 @@ class JeeNinSwiDaemon:
 
                 elif action == 'add_bonus_time':
                     minutes = int(payload.get('minutes', 15))
+                    # SECURITY: valider la plage de valeurs
+                    if not (1 <= minutes <= 480):
+                        return {'status': 'error', 'message': 'Valeur hors limite (1-480 min)'}
                     self.log.debug(f'[handle_action] add_bonus_time {minutes} min pour device {device_id}')
                     await device.add_extra_time(minutes)
                     self.log.info(f'+{minutes} minutes de bonus ajoutées pour device {device_id}')
@@ -690,6 +954,9 @@ class JeeNinSwiDaemon:
 
                 elif action == 'set_daily_limit':
                     minutes = int(payload.get('minutes', 120))
+                    # SECURITY: valider la plage (0=blocage immédiat, 360=6h max selon slider UI)
+                    if not (0 <= minutes <= 360):
+                        return {'status': 'error', 'message': 'Valeur hors limite (0-360 min)'}
                     self.log.debug(f'[handle_action] set_daily_limit {minutes} min pour device {device_id}')
                     await device.update_max_daily_playtime(minutes)
                     self.log.info(f'Limite quotidienne fixée à {minutes} min pour device {device_id}')
@@ -707,6 +974,9 @@ class JeeNinSwiDaemon:
 
                 elif action == 'subtract_time':
                     minutes = int(payload.get('minutes', 15))
+                    # SECURITY: valider la plage de valeurs
+                    if not (1 <= minutes <= 480):
+                        return {'status': 'error', 'message': 'Valeur hors limite (1-480 min)'}
                     current = getattr(device, 'limit_time', None)
                     if current is None or int(current) < 0:
                         self.log.warning(f'[handle_action] subtract_time ignoré : aucune limite configurée pour {device_id}')
@@ -728,8 +998,11 @@ class JeeNinSwiDaemon:
                     return {'status': 'error', 'message': 'GameChat non supporté par la bibliothèque'}
 
                 elif action == 'refresh':
-                    # Forcer un fetch immédiat (verrou déjà tenu par ce bloc)
-                    self.log.debug(f'[handle_action] refresh explicite pour device {device_id}')
+                    # Attente synchrone sous le verrou déjà tenu : appel _do_fetch (pas
+                    # _fetch_for_token qui tenterait de ré-acquérir le verrou → deadlock).
+                    # PHP reçoit la réponse seulement quand callback.php a mis à jour Jeedom.
+                    # JS fait alors location.reload() sans aucun polling.
+                    # PHP timeout = 30s (sendToDaemon) — Nintendo API répond en 5-20s.
                     await self._do_fetch(token, api)
                     self.log.debug(f'[handle_action] refresh terminé pour device {device_id}')
                     return {'status': 'ok'}
@@ -750,6 +1023,10 @@ class JeeNinSwiDaemon:
         Reçoit les commandes de Jeedom (sendToDaemon) et retourne le résultat JSON.
         Tourne dans la même boucle asyncio que le polling — pas de blocage.
         """
+        # SECURITY: limiter la taille du payload entrant (64 Ko)
+        if request.content_length is not None and request.content_length > 65536:
+            self.log.warning(f'[http] Payload trop volumineux: {request.content_length} octets')
+            return web.Response(status=413, text='Payload trop volumineux')
         try:
             payload = await request.json()
         except Exception as e:
@@ -792,14 +1069,33 @@ class JeeNinSwiDaemon:
                 'Démon JeeNinSwi démarré — en attente des actions Jeedom sur le port %d',
                 self.port
             )
+            # SECURITY: masquer la clé API dans les logs
+            _safe_cb = (self.callback_url.split('apikey=')[0] + 'apikey=****') \
+                       if 'apikey=' in self.callback_url else self.callback_url
             self.log.debug(
                 f'[run] PID={os.getpid()} | poll_interval={self.poll_interval}s '
-                f'| poll_cron={self.poll_cron} | callback={self.callback_url}'
+                f'| poll_cron={self.poll_cron} | callback={_safe_cb}'
             )
+
+            # ── Connexion initiale de tous les comptes pré-chargés ────────────
+            # Les tokens sont passés au démarrage via --tokens (PHP deamon_start).
+            # Sans ça, le démon attendrait qu'une action soit envoyée pour se connecter.
+            if self.token_devices:
+                self.log.info(f'[run] Connexion initiale de {len(self.token_devices)} compte(s) Nintendo...')
+                for token in list(self.token_devices.keys()):
+                    await self.get_or_connect(token)
+                # Premier poll immédiat après connexion
+                if self.apis:
+                    self.log.info('[run] Premier poll immédiat après démarrage')
+                    await self.fetch_all_devices()
+            else:
+                self.log.info(
+                    '[run] Aucun compte pré-chargé — le démon attendra une action Jeedom '
+                    '(ex: bouton Rafraîchir) pour se connecter à Nintendo.'
+                )
 
             # ── Boucle de polling Nintendo ────────────────────────────────────
             # Attend poll_interval secondes, puis poll tous les comptes connectés.
-            # Les comptes sont connectés dynamiquement via les actions Jeedom (handle_action).
             while self.running:
                 await asyncio.sleep(self.poll_interval)
                 if not self.running:
@@ -808,9 +1104,8 @@ class JeeNinSwiDaemon:
                     self.log.debug('Polling %d compte(s) Nintendo...', len(self.apis))
                     await self.fetch_all_devices()
                 else:
-                    self.log.debug(
-                        '[run] Aucun compte connecté — prochain poll dans %ds. '
-                        'Utilisez le bouton Rafraîchir sur un équipement pour déclencher la connexion.',
+                    self.log.info(
+                        '[run] Aucun compte connecté — prochain poll dans %ds.',
                         self.poll_interval
                     )
 
@@ -828,8 +1123,8 @@ def main():
         description='JeeNinSwi Daemon — Nintendo Switch Parental Controls pour Jeedom'
     )
     parser.add_argument(
-        '--device-ids', default='[]',
-        help='JSON array des device IDs à superviser (ex: ["abc123"])'
+        '--tokens', default='{}',
+        help='JSON object {token: [device_ids]} des comptes Nintendo à superviser au démarrage'
     )
     parser.add_argument(
         '--port', type=int, default=8347,

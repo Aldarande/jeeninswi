@@ -8,8 +8,8 @@
   </span>
 </div>
 
-<!-- TEMPS RESTANT -->
-<div class="nsw-band">TEMPS RESTANT&nbsp;: #temps_restant_fmt#</div>
+<!-- LIMITE DE TEMPS -->
+<div class="nsw-band">LIMITE AUJ.&nbsp;: #temps_limite_fmt#</div>
 
 <!-- CHART 7 JOURS -->
 <div class="nsw-chart">
@@ -18,12 +18,7 @@
     <div class="nsw-yax" id="nsw-y-#eqLogic_id#"></div>
     <div class="nsw-cols" id="nsw-c-#eqLogic_id#"></div>
   </div>
-  <div class="nsw-legend">
-    <span class="nsw-leg"><span class="nsw-leg-line"></span>&nbsp;LIMITE</span>
-    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#22c55e;"></span>&nbsp;UTILISATION</span>
-    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#e60012;"></span>&nbsp;HORS-LIMITE</span>
-    <span class="nsw-leg"><span class="nsw-leg-sq" style="background:#cbd5e1;"></span>&nbsp;REPOS</span>
-  </div>
+  <div class="nsw-legend" id="nsw-leg-#eqLogic_id#"></div>
 </div>
 
 <!-- JOUEURS + JEUX -->
@@ -31,12 +26,10 @@
 
 <!-- BOUTONS ACTIONS -->
 <div class="nsw-actions">
-  <!-- Ligne principale -->
   <div class="nsw-row" id="nsw-row-main-#eqLogic_id#">
     <button class="nsw-ab nsw-ab-g" id="nsw-btp-#eqLogic_id#">+ DE TEMPS</button>
     <button class="nsw-ab nsw-ab-lock" id="nsw-block-#eqLogic_id#"></button>
   </div>
-  <!-- Ligne sélecteur de durée (cachée par défaut) -->
   <div class="nsw-row" id="nsw-row-time-#eqLogic_id#" style="display:none;">
     <button class="nsw-ab nsw-ab-g2" id="nsw-b15-#eqLogic_id#">+15 min</button>
     <button class="nsw-ab nsw-ab-g2" id="nsw-b30-#eqLogic_id#">+30 min</button>
@@ -45,9 +38,8 @@
   </div>
 </div>
 
-<!-- CONFIG : MODE + LIMITE -->
+<!-- CONFIG : MODE -->
 <div class="nsw-cfg">
-  <!-- Mode restriction -->
   <div class="nsw-cfg-row">
     <span class="nsw-cfg-lbl">MODE</span>
     <div class="nsw-seg">
@@ -56,6 +48,9 @@
     </div>
   </div>
 </div>
+
+<!-- SYNCHRO -->
+<div class="nsw-sync"><i class="fas fa-clock" style="font-size:8px;margin-right:3px;"></i>SYNCHRO&nbsp;: #derniere_synchro#</div>
 
 <script>
 try{(function(){
@@ -68,7 +63,7 @@ try{(function(){
     if(!document.getElementById('nsw-css')){
       var lnk=document.createElement('link');
       lnk.id='nsw-css';lnk.rel='stylesheet';lnk.type='text/css';
-      lnk.href='plugins/jeeninswi/desktop/css/jeeninswi.css?v=20260416f';
+      lnk.href='plugins/jeeninswi/desktop/css/jeeninswi.css?v=20260503';
       document.head.appendChild(lnk);
     }
   }
@@ -82,87 +77,133 @@ try{(function(){
   var games=#historique_js#;
   var joueurs=#joueurs_js#;
 
-  /* ── Rafraîchir ─────────────────────────────────────────────────────── */
+  /* ── Palette couleurs jeux ────────────────────────────────────────── */
+  var PALETTE=['#6366f1','#f59e0b','#10b981','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6'];
+  var gameColorMap={};
+  if(Array.isArray(games)){
+    games.forEach(function(g,i){if(g.app_id)gameColorMap[g.app_id]=PALETTE[i%PALETTE.length];});
+  }
+
+  /* ── Rafraîchir ───────────────────────────────────────────────────── */
   (function(){
     var btn=document.getElementById('nsw-refresh-'+EQ);
     if(!btn||'#cmd_refresh_id#'==='0')return;
     btn.addEventListener('click',function(){
+      if(btn.dataset.pending)return;
+      btn.dataset.pending='1';
       var ico=btn.querySelector('i');
       if(ico)ico.style.cssText='animation:nsw-spin 1s linear infinite;display:inline-block;';
+      /* Le daemon est synchrone pour refresh (await) : success = données déjà reçues par Jeedom */
       jeedom.cmd.execute({
         id:'#cmd_refresh_id#',
-        success:function(){if(ico)ico.style.cssText='';},
-        error:  function(){if(ico)ico.style.cssText='';}
+        success:function(){location.reload();},
+        error:function(){btn.dataset.pending='';if(ico)ico.style.cssText='';}
       });
     });
   })();
 
-  /* ── Chart 7 jours ──────────────────────────────────────────────────── */
+  /* ── Chart 7 jours (barres empilées par jeu) ─────────────────────── */
   (function(){
-    var ROWS=12;
     var DFULL=['Dim.','Lun.','Mar.','Mer.','Jeu.','Ven.','Sam.'];
     var today=new Date();today.setHours(0,0,0,0);
     var days=[];
-    for(var i=6;i>=0;i--){
+    for(var i=7;i>=1;i--){
       var d=new Date(today);d.setDate(d.getDate()-i);
       var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
-      days.push({key:k,dow:d.getDay(),isToday:i===0});
+      days.push({key:k,dow:d.getDay(),isYest:i===1});
     }
+
     var byDate={};
-    if(Array.isArray(tl))tl.forEach(function(s){if(s.date)byDate[s.date]=parseInt(s.minutes)||0;});
-    var maxPlayed=0;
-    days.forEach(function(d){maxPlayed=Math.max(maxPlayed,byDate[d.key]||0);});
-    var ref=parseInt(limite)>0?parseInt(limite):120;
-    var chartMax=Math.max(ref,maxPlayed+30,60);
-    var step=chartMax<=120?30:chartMax<=240?60:120;
+    var maxMin=0;
+    var maxDayLimit=0;
+    if(Array.isArray(tl))tl.forEach(function(s){
+      if(s.date){
+        byDate[s.date]=s;
+        maxMin=Math.max(maxMin,parseInt(s.minutes)||0);
+        if(s.limit>0)maxDayLimit=Math.max(maxDayLimit,parseInt(s.limit)||0);
+      }
+    });
+
+    var ref=Math.max(parseInt(limite)||0,maxDayLimit)||120;
+    var chartMax=Math.max(ref,maxMin+30,60);
+    var step=chartMax<=60?15:chartMax<=120?30:chartMax<=240?60:120;
     chartMax=Math.ceil(chartMax/step)*step;
-    var minPerRow=chartMax/ROWS;
 
     function fmtLbl(m){
-      if(m<=0)return '0';
       var h=Math.floor(m/60),mm=Math.round(m%60);
-      if(mm===0)return h+'h';
+      if(mm===0)return h>0?h+'h':m+'m';
       if(h===0)return mm+'m';
       return h+'h'+mm;
     }
 
+    /* Y-axis : 3 repères (max, moitié, 0) */
     var yEl=document.getElementById('nsw-y-'+EQ);
-    if(!yEl)return;
-    var yHtml='';
-    for(var r=0;r<ROWS;r++){
-      var topMin=chartMax-(r*minPerRow);
-      var lbl=(r%3===0)?fmtLbl(topMin):'';
-      yHtml+='<div class="nsw-ycell">'+lbl+'</div>';
+    if(yEl){
+      yEl.innerHTML='<div class="nsw-ycell">'+fmtLbl(chartMax)+'</div>'
+        +'<div class="nsw-ycell">'+fmtLbl(chartMax/2)+'</div>'
+        +'<div class="nsw-ycell">0</div>';
     }
-    yHtml+='<div style="height:18px;"></div>';
-    yEl.innerHTML=yHtml;
 
+    /* Colonnes */
     var cEl=document.getElementById('nsw-c-'+EQ);
     if(!cEl)return;
     var cHtml='';
     days.forEach(function(day){
-      var played=byDate[day.key]||0;
-      var lbl=day.isToday?'AUJOURD\'HUI':DFULL[day.dow];
-      cHtml+='<div class="nsw-dcol'+(day.isToday?' is-today':'')+'">';
-      for(var r=0;r<ROWS;r++){
-        var blockTop=chartMax-r*minPerRow;
-        var blockBot=chartMax-(r+1)*minPerRow;
-        var cls;
-        if(played>=blockTop||(played>blockBot)){
-          cls=(parseInt(limite)>0&&blockBot>=parseInt(limite))?'b-over':'b-ok';
-        }else{
-          cls='b-empty';
-        }
-        var atLimit=(parseInt(limite)>0&&blockTop>=parseInt(limite)&&blockBot<parseInt(limite));
-        cHtml+='<div class="nsw-block '+cls+(atLimit?' b-limit':'')+'"></div>';
+      var entry=byDate[day.key]||{minutes:0,games:[]};
+      var totalMin=parseInt(entry.minutes)||0;
+      var dayGames=Array.isArray(entry.games)?entry.games:[];
+      var lbl=day.isYest?'Hier.':DFULL[day.dow];
+
+      cHtml+='<div class="nsw-dcol'+(day.isYest?' is-yest':'')+'">';
+      cHtml+='<div class="nsw-dbar">';
+
+      /* Segments jeux (column-reverse → empilés depuis le bas) */
+      if(dayGames.length>0){
+        dayGames.forEach(function(g){
+          var m=parseInt(g.minutes)||0;
+          if(m<=0)return;
+          var pct=Math.min(m/chartMax*100,100).toFixed(1);
+          var col=gameColorMap[g.app_id]||(PALETTE[0]);
+          cHtml+='<div class="nsw-dseg" style="height:'+pct+'%;background:'+col+'"></div>';
+        });
+      }else if(totalMin>0){
+        var pct=Math.min(totalMin/chartMax*100,100).toFixed(1);
+        cHtml+='<div class="nsw-dseg" style="height:'+pct+'%;background:'+PALETTE[0]+'"></div>';
       }
+
+      cHtml+='</div>';/* .nsw-dbar */
+
+      /* Trait de limite par colonne : utilise la limite du jour si disponible, sinon limite globale.
+         Hors du dbar (overflow:hidden) → dans dcol en px. Max 76px pour rester dans la barre. */
+      var dayLimit=(entry.limit>0)?parseInt(entry.limit):parseInt(limite);
+      if(dayLimit>0&&chartMax>0){
+        var limitePx=Math.min(dayLimit/chartMax*78,76).toFixed(1);
+        cHtml+='<div class="nsw-limit-col" style="bottom:calc(18px + '+limitePx+'px)"></div>';
+      }
+
       cHtml+='<div class="nsw-dlbl">'+lbl+'</div>';
-      cHtml+='</div>';
+      cHtml+='</div>';/* .nsw-dcol */
     });
     cEl.innerHTML=cHtml;
+
+    /* Légende : jeux + limite + repos */
+    var legEl=document.getElementById('nsw-leg-'+EQ);
+    if(legEl){
+      var lHtml='';
+      if(parseInt(limite)>0||maxDayLimit>0)
+        lHtml+='<span class="nsw-leg"><span class="nsw-leg-line"></span>&nbsp;LIMITE</span>';
+      if(Array.isArray(games))games.slice(0,5).forEach(function(g,i){
+        if(!g.title)return;
+        var col=PALETTE[i%PALETTE.length];
+        var t=g.title.length>11?g.title.substring(0,10)+'…':g.title;
+        lHtml+='<span class="nsw-leg"><span class="nsw-leg-sq" style="background:'+col+'"></span>&nbsp;'+t+'</span>';
+      });
+      lHtml+='<span class="nsw-leg"><span class="nsw-leg-sq" style="background:#cbd5e1"></span>&nbsp;REPOS</span>';
+      legEl.innerHTML=lHtml;
+    }
   })();
 
-  /* ── Joueurs + Jeux (2 colonnes) ────────────────────────────────────── */
+  /* ── Joueurs + Jeux (2 colonnes) ─────────────────────────────────── */
   (function(){
     var el=document.getElementById('nsw-pj-'+EQ);
     if(!el)return;
@@ -172,58 +213,59 @@ try{(function(){
       if(h>0)return h+'h';
       return mm+'m';
     }
-    /* --- Colonne joueurs --- */
+    /* Joueurs */
     var colJ='<div class="nsw-pj-col">';
     colJ+='<div class="nsw-pj-title">JOUEURS</div>';
     if(Array.isArray(joueurs)&&joueurs.length>0){
       joueurs.forEach(function(p){
         if(!p.title)return;
-        var min=parseInt(p.minutes)||0;
         colJ+='<div class="nsw-pj-row">';
         if(p.image){
           colJ+='<img class="nsw-pj-img" src="'+p.image+'" alt="" onerror="this.style.display=\'none\'">';
         }else{
-          colJ+='<span class="nsw-pj-img nsw-pj-ph">\uD83D\uDC64</span>';
+          colJ+='<span class="nsw-pj-img nsw-pj-ph">👤</span>';
         }
         colJ+='<div class="nsw-pj-name">'+p.title+'</div>';
-        colJ+='<span class="nsw-pj-time">'+fmtMin(min)+'</span>';
+        colJ+='<span class="nsw-pj-time">'+fmtMin(parseInt(p.minutes)||0)+'</span>';
         colJ+='</div>';
       });
-    }else{
-      colJ+='<div class="nsw-pj-empty">—</div>';
-    }
+    }else{colJ+='<div class="nsw-pj-empty">—</div>';}
     colJ+='</div>';
-    /* --- Colonne jeux --- */
+
+    /* Jeux */
     var colG='<div class="nsw-pj-col">';
     colG+='<div class="nsw-pj-title">JEUX</div>';
     if(Array.isArray(games)&&games.length>0){
       var maxMin=0;
       games.forEach(function(g){maxMin=Math.max(maxMin,parseInt(g.minutes)||0);});
-      games.forEach(function(g){
+      games.forEach(function(g,idx){
         if(!g.title)return;
         var min=parseInt(g.minutes)||0;
         var pct=maxMin>0?Math.round(min/maxMin*100):0;
+        var col=PALETTE[idx%PALETTE.length];
+        var letter=(g.title||'?').charAt(0).toUpperCase();
         colG+='<div class="nsw-pj-row">';
         if(g.image){
-          colG+='<img class="nsw-pj-img" src="'+g.image+'" alt="" onerror="this.style.display=\'none\'">';
+          colG+='<img class="nsw-pj-img nsw-game-img" src="'+g.image+'" alt="'+g.title+'" '
+               +'style="border-color:'+col+'" '
+               +'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-flex\'">';
+          colG+='<span class="nsw-pj-img nsw-pj-ph nsw-game-img" style="display:none;background:'+col+';color:#fff;font-weight:900;font-size:11px;">'+letter+'</span>';
         }else{
-          colG+='<span class="nsw-pj-img nsw-pj-ph">\uD83C\uDFAE</span>';
+          colG+='<span class="nsw-pj-img nsw-pj-ph nsw-game-img" style="background:'+col+';color:#fff;font-weight:900;font-size:11px;">'+letter+'</span>';
         }
         colG+='<div class="nsw-pj-ginfo">';
         colG+='<div class="nsw-pj-name">'+g.title+'</div>';
-        colG+='<div class="nsw-gbar"><div class="nsw-gfill" style="width:'+pct+'%"></div></div>';
+        colG+='<div class="nsw-gbar"><div class="nsw-gfill" style="width:'+pct+'%;background:'+col+'"></div></div>';
         colG+='</div>';
         colG+='<span class="nsw-pj-time">'+fmtMin(min)+'</span>';
         colG+='</div>';
       });
-    }else{
-      colG+='<div class="nsw-pj-empty">Aucun jeu</div>';
-    }
+    }else{colG+='<div class="nsw-pj-empty">Aucun jeu</div>';}
     colG+='</div>';
     el.innerHTML='<div class="nsw-pj-wrap">'+colJ+colG+'</div>';
   })();
 
-  /* ── Mode restriction ───────────────────────────────────────────────── */
+  /* ── Mode restriction ────────────────────────────────────────────── */
   (function(){
     var bA=document.getElementById('nsw-ta-'+EQ);
     var bB=document.getElementById('nsw-tb-'+EQ);
@@ -237,63 +279,49 @@ try{(function(){
     bB.onclick=function(){nswCmd('#cmd_mode_blocage_id#');upd(0);};
   })();
 
-  /* ── Bouton + DE TEMPS (swap de ligne) ──────────────────────────────── */
+  /* ── Bouton + DE TEMPS ───────────────────────────────────────────── */
   (function(){
     var rowMain=document.getElementById('nsw-row-main-'+EQ);
     var rowTime=document.getElementById('nsw-row-time-'+EQ);
     var btnTp  =document.getElementById('nsw-btp-'+EQ);
     var btnBack=document.getElementById('nsw-bback-'+EQ);
     if(!rowMain||!rowTime||!btnTp||!btnBack)return;
-
     btnTp.onclick=function(){rowMain.style.display='none';rowTime.style.display='flex';};
     btnBack.onclick=function(){rowTime.style.display='none';rowMain.style.display='flex';};
-
     var timeItems=[
-      {id:'nsw-b15-'+EQ, cmdId:'#cmd_add15_id#', label:'+15 min'},
-      {id:'nsw-b30-'+EQ, cmdId:'#cmd_add30_id#', label:'+30 min'},
-      {id:'nsw-b60-'+EQ, cmdId:'#cmd_add60_id#', label:'+1 heure'}
+      {id:'nsw-b15-'+EQ,cmdId:'#cmd_add15_id#',label:'+15 min'},
+      {id:'nsw-b30-'+EQ,cmdId:'#cmd_add30_id#',label:'+30 min'},
+      {id:'nsw-b60-'+EQ,cmdId:'#cmd_add60_id#',label:'+1 heure'}
     ];
     timeItems.forEach(function(it){
       var btn=document.getElementById(it.id);
       if(!btn||it.cmdId==='0')return;
       btn.onclick=function(){
         nswCmd(it.cmdId);
-        rowTime.style.display='none';
-        rowMain.style.display='flex';
+        rowTime.style.display='none';rowMain.style.display='flex';
         var orig=btnTp.textContent;
-        btnTp.textContent='\u2713 '+it.label;
+        btnTp.textContent='✓ '+it.label;
         setTimeout(function(){btnTp.textContent=orig;},2000);
       };
     });
   })();
 
-  /* ── Bouton Bloquer / Débloquer ─────────────────────────────────────── */
+  /* ── Bouton Bloquer / Débloquer ──────────────────────────────────── */
   (function(){
     var btn=document.getElementById('nsw-block-'+EQ);
     if(!btn)return;
     var bloquee=#bloquee#;
-    function upd(state){
-      if(state){
-        btn.className='nsw-ab nsw-ab-unblock';
-        btn.innerHTML='&#128275;&nbsp;D\u00C9BLOQUER';
-      }else{
-        btn.className='nsw-ab nsw-ab-lock';
-        btn.innerHTML='&#128274;&nbsp;BLOQUER';
-      }
+    function upd(s){
+      btn.className=s?'nsw-ab nsw-ab-unblock':'nsw-ab nsw-ab-lock';
+      btn.innerHTML=s?'&#128275;&nbsp;DÉBLOQUER':'&#128274;&nbsp;BLOQUER';
     }
     upd(bloquee);
     btn.onclick=function(){
-      if(bloquee){
-        nswCmd('#cmd_lever_id#');
-        bloquee=0;
-      }else{
-        nswCmd('#cmd_bloquer_id#');
-        bloquee=1;
-      }
+      if(bloquee){nswCmd('#cmd_lever_id#');bloquee=0;}
+      else{nswCmd('#cmd_bloquer_id#');bloquee=1;}
       upd(bloquee);
     };
   })();
-
 
 })();}catch(e){console.warn('[nsw]',e);}
 </script>

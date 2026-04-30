@@ -9,19 +9,18 @@
  *   - sendAction         : exécution d'une commande action sur un équipement
  *   - getAuthUrl         : génère l'URL OAuth Nintendo (étape 1 de l'assistant token)
  *   - exchangeToken      : échange l'URL de redirection contre un token + liste consoles
- *   - saveTokenAndDevices: sauvegarde le token et crée/met à jour les équipements
+//  *   - saveTokenAndDevices: sauvegarde le token et crée/met à jour les équipements
  */
 try {
     require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
     include_file('core', 'authentification', 'php');
 
+    // SECURITY: token CSRF validé en premier — toute action non listée lève une exception
+    ajax::init(['getDeviceStatus', 'sendAction', 'getAuthUrl', 'exchangeToken', 'saveTokenAndDevices']);
+
     if (!isConnect('admin')) {
         throw new Exception(__('401 - Accès non autorisé', __FILE__));
     }
-
-    // ajax::init() vérifie le token AJAX Jeedom et déclare les actions autorisées.
-    // Toute action non listée ici déclenche une exception automatique.
-    ajax::init(['getDeviceStatus', 'sendAction', 'getAuthUrl', 'exchangeToken', 'saveTokenAndDevices']);
 
     // ── Chemin vers le Python du venv (partagé par getAuthUrl et exchangeToken) ────
     $venv_python = dirname(__FILE__) . '/../../resources/venv/bin/python3';
@@ -30,8 +29,9 @@ try {
     // ── Statut courant d'un équipement ───────────────────────────────────────────
     if (init('action') == 'getDeviceStatus') {
         log::add('jeeninswi', 'debug', '[ajax] getDeviceStatus — eqLogic_id=' . init('eqLogic_id'));
-        $eqLogic = eqLogic::byId(init('eqLogic_id'));
-        if (!is_object($eqLogic)) {
+        // SECURITY: cast en entier + vérification que l'équipement appartient bien à ce plugin
+        $eqLogic = eqLogic::byId(intval(init('eqLogic_id')));
+        if (!is_object($eqLogic) || $eqLogic->getEqType_name() !== 'jeeninswi') {
             throw new Exception(__('Équipement introuvable', __FILE__));
         }
         $result = [];
@@ -45,13 +45,23 @@ try {
     // ── Exécuter une commande action ─────────────────────────────────────────────
     if (init('action') == 'sendAction') {
         log::add('jeeninswi', 'debug', '[ajax] sendAction — eqLogic_id=' . init('eqLogic_id') . ' | action_name=' . init('action_name'));
-        $eqLogic = eqLogic::byId(init('eqLogic_id'));
-        if (!is_object($eqLogic)) {
+        // SECURITY: cast en entier + vérification du plugin
+        $eqLogic = eqLogic::byId(intval(init('eqLogic_id')));
+        if (!is_object($eqLogic) || $eqLogic->getEqType_name() !== 'jeeninswi') {
             throw new Exception(__('Équipement introuvable', __FILE__));
         }
-        $cmd = $eqLogic->getCmd('action', init('action_name'));
+        // SECURITY: whitelist des logicalIds d'actions autorisées
+        $allowed_actions = ['bloquer_maintenant', 'lever_restriction', 'ajouter_temps_15',
+                            'ajouter_temps_30', 'ajouter_temps_60', 'definir_limite',
+                            'ajouter_temps', 'soustraire_temps', 'mode_alerte', 'mode_blocage',
+                            'signaler', 'gamechat_on', 'gamechat_off', 'rafraichir'];
+        $action_name = init('action_name');
+        if (!in_array($action_name, $allowed_actions, true)) {
+            throw new Exception(__('Commande non autorisée', __FILE__));
+        }
+        $cmd = $eqLogic->getCmd('action', $action_name);
         if (!is_object($cmd)) {
-            throw new Exception(__('Commande introuvable : ', __FILE__) . init('action_name'));
+            throw new Exception(__('Commande introuvable : ', __FILE__) . $action_name);
         }
         $cmd->execute();
         log::add('jeeninswi', 'debug', '[ajax] sendAction — exécuté avec succès');

@@ -10,8 +10,10 @@
   "author": "Aldarande",
   "require": "4.4",
   "category": "monitoring",
-  "changelog": "",
-  "documentation": "plugins/jeeninswi/docs/fr_FR/index.html",
+  "documentation": "https://aldarande.github.io/jeeninswi/#language#/index.html",
+  "changelog": "https://aldarande.github.io/jeeninswi/#language#/index.html#changelog",
+  "documentation_beta": "https://aldarande.github.io/jeeninswi/#language#/beta.html",
+  "changelog_beta": "https://aldarande.github.io/jeeninswi/#language#/beta.html#beta-nouveautes",
   "language": ["fr_FR"],
   "compatibility": [
     "smart",

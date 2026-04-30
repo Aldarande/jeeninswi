@@ -218,24 +218,51 @@
     background: #12151f;
     color: #f0f4ff;
     border-radius: 14px;
-    padding: 16px;
+    padding: 14px;
     width: 300px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 13px;
     margin: 16px 0;
     box-shadow: 0 8px 32px rgba(0,0,0,.4);
   }
-  .wm-hdr { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 900; letter-spacing: 1px; font-size: 12px; text-transform: uppercase; }
-  .wm-band { background: #e60012; border-radius: 8px; text-align: center; padding: 8px; font-weight: 900; margin-bottom: 10px; font-size: 15px; }
+  .wm-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 900; letter-spacing: 1px; font-size: 12px; text-transform: uppercase; }
+  .wm-hdr a { color: #f0f4ff; font-size: 12px; }
+  .wm-band { background: #e60012; border-radius: 8px; text-align: center; padding: 8px; font-weight: 900; margin-bottom: 10px; font-size: 14px; letter-spacing: 0.5px; }
   .wm-chart { background: #f1f5f9; border-radius: 8px; padding: 8px; margin-bottom: 8px; }
   .wm-chart-title { font-size: 8px; font-weight: 800; color: #475569; text-align: center; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
-  .wm-bars { display: flex; gap: 4px; height: 48px; align-items: flex-end; }
-  .wm-bar { flex: 1; border-radius: 3px 3px 0 0; }
-  .wm-btns { display: flex; gap: 5px; margin-bottom: 8px; }
-  .wm-btn { flex: 1; border: none; border-radius: 7px; padding: 8px 2px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; text-align: center; cursor: default; }
-  .wm-toggle { display: flex; background: #0f172a; border-radius: 8px; padding: 3px; gap: 2px; }
-  .wm-tbtn { flex: 1; border: none; border-radius: 6px; padding: 7px 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; text-align: center; cursor: default; }
-  .wm-mlbl { font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: 0.6px; text-align: center; margin-bottom: 4px; text-transform: uppercase; }
+  .wm-cgrid { display: flex; gap: 3px; }
+  .wm-yax { display: flex; flex-direction: column; justify-content: space-between; font-size: 7px; color: #94a3b8; padding-bottom: 14px; min-width: 20px; text-align: right; }
+  .wm-cols { display: flex; gap: 3px; flex: 1; }
+  .wm-dcol { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; }
+  .wm-dbar { width: 100%; height: 50px; display: flex; flex-direction: column-reverse; border-radius: 3px; overflow: hidden; background: #e2e8f0; position: relative; }
+  .wm-dseg { width: 100%; flex-shrink: 0; }
+  .wm-dlbl { font-size: 7px; color: #64748b; margin-top: 2px; font-weight: 600; }
+  .wm-limit { position: absolute; left: 0; right: 0; height: 2px; background: #3b82f6; opacity: .85; border-radius: 1px; }
+  .wm-leg { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .wm-leg-item { font-size: 7px; color: #64748b; display: flex; align-items: center; gap: 2px; }
+  .wm-leg-sq { width: 7px; height: 7px; border-radius: 1px; flex-shrink: 0; }
+  .wm-leg-line { width: 10px; height: 2px; background: #3b82f6; flex-shrink: 0; }
+  /* JOUEURS / JEUX */
+  .wm-pj { display: flex; gap: 6px; margin-bottom: 8px; }
+  .wm-pj-col { flex: 1; background: #1e2535; border-radius: 6px; padding: 5px 6px; }
+  .wm-pj-title { font-size: 7px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .wm-pj-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+  .wm-pj-img { width: 16px; height: 16px; border-radius: 3px; background: #334155; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 7px; color: #fff; font-weight: 900; }
+  .wm-pj-name { font-size: 8px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e2e8f0; }
+  .wm-pj-time { font-size: 7px; color: #94a3b8; flex-shrink: 0; }
+  .wm-gbar { height: 2px; background: #0f172a; border-radius: 1px; margin-top: 1px; }
+  .wm-gfill { height: 100%; border-radius: 1px; }
+  /* Actions */
+  .wm-acts { display: flex; gap: 5px; margin-bottom: 6px; }
+  .wm-ab { flex: 1; border: none; border-radius: 7px; padding: 8px 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; text-align: center; cursor: default; }
+  .wm-ab-g { background: #16a34a; color: #fff; }
+  .wm-ab-lock { background: #dc2626; color: #fff; }
+  /* Mode */
+  .wm-mode-lbl { font-size: 7px; font-weight: 700; color: #64748b; letter-spacing: 0.6px; text-align: center; margin-bottom: 3px; text-transform: uppercase; }
+  .wm-seg { display: flex; background: #0f172a; border-radius: 8px; padding: 3px; gap: 2px; margin-bottom: 6px; }
+  .wm-sbtn { flex: 1; border: none; border-radius: 5px; padding: 6px 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; text-align: center; cursor: default; color: #475569; background: transparent; }
+  .wm-sbtn.on { background: rgba(234,179,8,.15); color: #eab308; }
+  .wm-sync { font-size: 7px; color: #475569; text-align: center; letter-spacing: 0.4px; }
 
   /* ── Scenario box ─────────────────────────────────────────── */
   .scenario {
@@ -306,6 +333,7 @@
     <li class="section-title">Référence</li>
     <li><a href="#depannage">Dépannage</a></li>
     <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#changelog">Changelog</a></li>
   </ul>
 </nav>
 
@@ -366,9 +394,9 @@
   <h3>Ce que le plugin ne peut pas faire</h3>
   <p>Limitations liées à l'API Nintendo :</p>
   <ul style="padding-left:20px;margin-bottom:12px;">
-    <li>Modifier la limite quotidienne (valeur lue en lecture seule)</li>
-    <li>Contrôler le GameChat Switch 2 (API non publique)</li>
-    <li>Afficher l'avatar Nintendo (non exposé par l'API)</li>
+    <li>Recevoir des événements en temps réel — la mise à jour se fait par polling uniquement</li>
+    <li>Accéder à l'avatar Nintendo (non exposé par l'API Parental Controls)</li>
+    <li>Accéder à la liste d'amis ou aux messages Nintendo</li>
   </ul>
 
   <!-- ── Installation ─────────────────────────────────────────────────── -->
@@ -507,47 +535,129 @@
 
   <!-- Widget mockup -->
   <div class="widget-mockup">
+    <!-- Header -->
     <div class="wm-hdr">
-      <span>THIEBAULT</span>
-      <span style="color:#8b9ec7;font-size:14px;">↺</span>
+      <span>ALDARANDE</span>
+      <span class="wm-hdr a" style="color:#8b9ec7;font-size:12px;">&#8635;</span>
     </div>
+    <!-- Temps restant -->
     <div class="wm-band">TEMPS RESTANT&nbsp;: 1h 23min</div>
+    <!-- Chart 7 jours -->
     <div class="wm-chart">
       <div class="wm-chart-title">HISTORIQUE D'USAGE (7 JOURS GLISSANTS)</div>
-      <div class="wm-bars">
-        <div class="wm-bar" style="height:30%;background:#22c55e;"></div>
-        <div class="wm-bar" style="height:80%;background:#22c55e;"></div>
-        <div class="wm-bar" style="height:100%;background:#e60012;"></div>
-        <div class="wm-bar" style="height:20%;background:#22c55e;"></div>
-        <div class="wm-bar" style="height:10%;background:#cbd5e1;"></div>
-        <div class="wm-bar" style="height:60%;background:#22c55e;"></div>
-        <div class="wm-bar" style="height:45%;background:#22c55e;"></div>
+      <div class="wm-cgrid">
+        <div class="wm-yax"><span>2h</span><span>1h</span><span>0</span></div>
+        <div class="wm-cols">
+          <!-- 7 colonnes : jours de la semaine -->
+          <div class="wm-dcol">
+            <div class="wm-dbar"><div class="wm-dseg" style="height:25%;background:#6366f1"></div></div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Lun.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar"><div class="wm-dseg" style="height:65%;background:#6366f1"></div></div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Mar.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar">
+              <div class="wm-dseg" style="height:50%;background:#6366f1"></div>
+              <div class="wm-dseg" style="height:60%;background:#f59e0b"></div>
+            </div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Mer.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar"></div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Jeu.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar"><div class="wm-dseg" style="height:45%;background:#6366f1"></div></div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Ven.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar">
+              <div class="wm-dseg" style="height:80%;background:#6366f1"></div>
+              <div class="wm-dseg" style="height:30%;background:#10b981"></div>
+            </div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Sam.</div>
+          </div>
+          <div class="wm-dcol">
+            <div class="wm-dbar"><div class="wm-dseg" style="height:35%;background:#6366f1"></div></div>
+            <div class="wm-limit" style="bottom:calc(14px + 39px)"></div>
+            <div class="wm-dlbl">Hier.</div>
+          </div>
+        </div>
+      </div>
+      <div class="wm-leg">
+        <span class="wm-leg-item"><span class="wm-leg-line"></span>&nbsp;LIMITE</span>
+        <span class="wm-leg-item"><span class="wm-leg-sq" style="background:#6366f1"></span>&nbsp;Mario Kart</span>
+        <span class="wm-leg-item"><span class="wm-leg-sq" style="background:#f59e0b"></span>&nbsp;Minecraft</span>
+        <span class="wm-leg-item"><span class="wm-leg-sq" style="background:#10b981"></span>&nbsp;Splatoon</span>
+        <span class="wm-leg-item"><span class="wm-leg-sq" style="background:#e2e8f0"></span>&nbsp;REPOS</span>
       </div>
     </div>
-    <div class="wm-btns">
-      <div class="wm-btn" style="background:#16a34a;color:#fff;">+15 MIN</div>
-      <div class="wm-btn" style="background:#4f46e5;color:#fff;">🎮 BONUS</div>
-      <div class="wm-btn" style="background:#ea580c;color:#fff;">⚠ SIGNALER</div>
+    <!-- JOUEURS / JEUX -->
+    <div class="wm-pj">
+      <div class="wm-pj-col">
+        <div class="wm-pj-title">JOUEURS</div>
+        <div class="wm-pj-row">
+          <div class="wm-pj-img">👤</div>
+          <div class="wm-pj-name">Aldarande</div>
+          <span class="wm-pj-time">1h37</span>
+        </div>
+      </div>
+      <div class="wm-pj-col">
+        <div class="wm-pj-title">JEUX</div>
+        <div class="wm-pj-row">
+          <div class="wm-pj-img" style="background:#6366f1">M</div>
+          <div style="flex:1">
+            <div class="wm-pj-name">Mario Kart 8</div>
+            <div class="wm-gbar"><div class="wm-gfill" style="width:100%;background:#6366f1"></div></div>
+          </div>
+          <span class="wm-pj-time">1h05</span>
+        </div>
+        <div class="wm-pj-row">
+          <div class="wm-pj-img" style="background:#f59e0b">S</div>
+          <div style="flex:1">
+            <div class="wm-pj-name">Splatoon 3</div>
+            <div class="wm-gbar"><div class="wm-gfill" style="width:48%;background:#f59e0b"></div></div>
+          </div>
+          <span class="wm-pj-time">32m</span>
+        </div>
+      </div>
     </div>
-    <div class="wm-mlbl">MODE DE RESTRICTION</div>
-    <div class="wm-toggle">
-      <div class="wm-tbtn" style="background:rgba(234,179,8,.15);color:#eab308;">ALERTE</div>
-      <div class="wm-tbtn" style="color:#475569;">BLOCAGE FORCÉ</div>
+    <!-- Boutons actions -->
+    <div class="wm-acts">
+      <div class="wm-ab wm-ab-g">+ DE TEMPS</div>
+      <div class="wm-ab wm-ab-lock">🔒 BLOQUER</div>
     </div>
+    <!-- Mode restriction -->
+    <div class="wm-mode-lbl">MODE</div>
+    <div class="wm-seg">
+      <div class="wm-sbtn on">ALERTE</div>
+      <div class="wm-sbtn">BLOCAGE</div>
+    </div>
+    <!-- Synchro -->
+    <div class="wm-sync">🕐 SYNCHRO&nbsp;: 28/04/2026 07:32</div>
   </div>
 
   <h3>Éléments du widget</h3>
   <table>
     <thead><tr><th>Élément</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td>Nom du profil + <code>↺</code></td><td>Pseudo Nintendo. L'icône rafraîchir force une mise à jour immédiate (tourne pendant la requête).</td></tr>
-      <tr><td>Bande rouge</td><td>Temps restant dans la journée. Affiche "Illimité" si pas de limite configurée.</td></tr>
-      <tr><td>Graphique 7 jours</td><td>Barres vertes = dans la limite, rouges = dépassement, grises = aucune session. Trait bleu = limite quotidienne.</td></tr>
-      <tr><td>+15 MIN</td><td>Accorde 15 minutes de bonus (commande <code>ajouter_temps_15</code>).</td></tr>
-      <tr><td>🎮 BONUS</td><td>Accorde 30 minutes de bonus via la commande <code>bonus_special</code> (slider, valeur 30 par défaut). Peut aussi être appelée avec une autre valeur depuis un scénario.</td></tr>
-      <tr><td>⚠ SIGNALER</td><td>Enregistre un signalement (usage interne, aucun impact Nintendo).</td></tr>
-      <tr><td>ALERTE</td><td>Mode alerte : la console envoie une notification sans se couper.</td></tr>
-      <tr><td>BLOCAGE FORCÉ</td><td>Mode blocage : la console se coupe automatiquement à la fin du temps.</td></tr>
+      <tr><td>Nom + <code>&#8635;</code></td><td>Nom de l'équipement Jeedom (cliquable → page de configuration). Le bouton ↻ force une mise à jour immédiate depuis Nintendo : l'icône tourne pendant la requête, la page se recharge automatiquement à la fin.</td></tr>
+      <tr><td>Bande rouge</td><td>Temps restant dans la journée. Affiche "Illimité" si aucune limite n'est configurée sur la console.</td></tr>
+      <tr><td>Graphique 7 jours</td><td>Barres colorées par jeu (couleur = jeu identifié). Trait bleu pointillé = limite quotidienne (celle du jour si configurée par jour, sinon la limite globale). Colonne vide = journée sans session.</td></tr>
+      <tr><td>JOUEURS</td><td>Derniers profils actifs sur la console, avec avatar (ou icône par défaut) et temps de jeu du jour.</td></tr>
+      <tr><td>JEUX</td><td>Jeux joués aujourd'hui, triés par durée : pochette téléchargée localement, barre de progression et temps.</td></tr>
+      <tr><td>+ DE TEMPS</td><td>Ouvre un sous-menu avec les boutons <strong>+15 min</strong>, <strong>+30 min</strong>, <strong>+1 heure</strong>. Le bouton ✗ ferme le sous-menu sans agir.</td></tr>
+      <tr><td>BLOQUER / DÉBLOQUER</td><td>Bloque ou restaure l'accès à la console. Le libellé et la couleur du bouton s'adaptent à l'état courant (<code>console_bloquee</code>).</td></tr>
+      <tr><td>ALERTE / BLOCAGE</td><td>Mode de restriction : <em>Alerte</em> = notification sans coupure, <em>Blocage</em> = coupure automatique à la fin du temps.</td></tr>
+      <tr><td>SYNCHRO</td><td>Date et heure de la dernière synchronisation réussie avec l'API Nintendo.</td></tr>
     </tbody>
   </table>
 
@@ -558,20 +668,19 @@
   <table>
     <thead><tr><th>Nom</th><th>logicalId</th><th>Type</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td>Pseudo</td><td><code>pseudo</code></td><td>string</td><td>Nom du profil Nintendo</td></tr>
-      <tr><td>Avatar URL</td><td><code>avatar_url</code></td><td>string</td><td>URL de l'avatar (vide — non exposé par l'API Nintendo)</td></tr>
-      <tr><td>Statut en ligne</td><td><code>statut_en_ligne</code></td><td>string</td><td>En ligne / En jeu / Hors ligne</td></tr>
+      <tr><td>Pseudo</td><td><code>pseudo</code></td><td>string</td><td>Nom du profil Nintendo sur la console</td></tr>
+      <tr><td>Statut en ligne</td><td><code>statut_en_ligne</code></td><td>string</td><td>Statut de connexion retourné par l'API Nintendo</td></tr>
       <tr><td>Jeu en cours</td><td><code>jeu_en_cours</code></td><td>string</td><td>Nom du jeu le plus joué aujourd'hui</td></tr>
-      <tr><td>Jeu image</td><td><code>jeu_en_cours_image</code></td><td>string</td><td>URL de la pochette du jeu en cours</td></tr>
+      <tr><td>Jeu image</td><td><code>jeu_en_cours_image</code></td><td>string</td><td>Chemin local de la pochette du jeu (téléchargée dans <code>data/jeeninswi/images/</code>)</td></tr>
       <tr><td>Temps de jeu (jour)</td><td><code>temps_jour</code></td><td>numeric</td><td>Minutes jouées aujourd'hui</td></tr>
-      <tr><td>Temps de jeu (mois)</td><td><code>temps_semaine</code></td><td>numeric</td><td>Minutes jouées ce mois-ci</td></tr>
+      <tr><td>Temps de jeu (sem.)</td><td><code>temps_semaine</code></td><td>numeric</td><td>Minutes jouées cette semaine</td></tr>
       <tr><td>Temps restant</td><td><code>temps_restant</code></td><td>numeric</td><td>Minutes restantes aujourd'hui (-1 = illimité)</td></tr>
-      <tr><td>Limite quotidienne</td><td><code>temps_limite</code></td><td>numeric</td><td>Limite configurée en minutes (-1 = aucune)</td></tr>
-      <tr><td>Console bloquée</td><td><code>console_bloquee</code></td><td>binary</td><td>1 = bloquée (limite à 0), 0 = normale</td></tr>
-      <tr><td>Mode restriction</td><td><code>mode_restriction</code></td><td>binary</td><td>0 = blocage forcé, 1 = alerte</td></tr>
-      <tr><td>GameChat actif</td><td><code>gamechat_actif</code></td><td>binary</td><td>1 = activé, 0 = désactivé (Switch 2 uniquement)</td></tr>
-      <tr><td>Historique jeux</td><td><code>historique_jeux</code></td><td>string</td><td>JSON des 10 jeux les plus joués aujourd'hui</td></tr>
-      <tr><td>Timeline 7 jours</td><td><code>timeline_json</code></td><td>string</td><td>JSON pour le graphique historique du widget</td></tr>
+      <tr><td>Limite quotidienne</td><td><code>temps_limite</code></td><td>numeric</td><td>Limite globale configurée en minutes (-1 = aucune)</td></tr>
+      <tr><td>Console bloquée</td><td><code>console_bloquee</code></td><td>binary</td><td>1 = accès suspendu, 0 = normal</td></tr>
+      <tr><td>Mode restriction</td><td><code>mode_restriction</code></td><td>binary</td><td>1 = alerte seule, 0 = blocage automatique</td></tr>
+      <tr><td>GameChat actif</td><td><code>gamechat_actif</code></td><td>binary</td><td>1 = GameChat activé, 0 = désactivé (Switch 2 uniquement)</td></tr>
+      <tr><td>Historique jeux</td><td><code>historique_jeux</code></td><td>string</td><td>JSON des jeux joués aujourd'hui (titre, app_id, minutes, image)</td></tr>
+      <tr><td>Timeline 7 jours</td><td><code>timeline_json</code></td><td>string</td><td>JSON du graphique 7 jours (date, minutes, jeux, limite du jour)</td></tr>
     </tbody>
   </table>
 
@@ -579,19 +688,17 @@
   <table>
     <thead><tr><th>Nom</th><th>logicalId</th><th>Sous-type</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td>Rafraîchir</td><td><code>rafraichir</code></td><td>other</td><td>Mise à jour immédiate depuis l'API Nintendo (bouton ↺ du widget)</td></tr>
-      <tr><td>Bloquer maintenant</td><td><code>bloquer_maintenant</code></td><td>other</td><td>Suspend l'accès à la console (fixe la limite à 0)</td></tr>
-      <tr><td>Lever la restriction</td><td><code>lever_restriction</code></td><td>other</td><td>Restaure l'accès normal (fixe la limite à -1)</td></tr>
-      <tr><td>Ajouter 15 min</td><td><code>ajouter_temps_15</code></td><td>other</td><td>Accorde 15 minutes de bonus</td></tr>
-      <tr><td>Ajouter 30 min</td><td><code>ajouter_temps_30</code></td><td>other</td><td>Accorde 30 minutes de bonus</td></tr>
-      <tr><td>Ajouter 60 min</td><td><code>ajouter_temps_60</code></td><td>other</td><td>Accorde 60 minutes de bonus</td></tr>
-      <tr><td>Bonus (min)</td><td><code>bonus_special</code></td><td>slider 0–120</td><td>Accorde N minutes de bonus (slider). Utilisé par le bouton 🎮 BONUS du widget (valeur 30 par défaut).</td></tr>
-      <tr><td>Définir limite</td><td><code>definir_limite</code></td><td>slider 0–360</td><td>Fixe la limite quotidienne en minutes</td></tr>
-      <tr><td>Mode alerte</td><td><code>mode_alerte</code></td><td>other</td><td>Active le mode alerte (notification sans coupure)</td></tr>
-      <tr><td>Mode blocage</td><td><code>mode_blocage</code></td><td>other</td><td>Active le mode blocage forcé (coupure automatique)</td></tr>
-      <tr><td>Signaler</td><td><code>signaler</code></td><td>other</td><td>Enregistre un signalement (usage interne)</td></tr>
-      <tr><td>Activer GameChat</td><td><code>gamechat_on</code></td><td>other</td><td>Active le GameChat Switch 2 (non supporté par l'API)</td></tr>
-      <tr><td>Désactiver GameChat</td><td><code>gamechat_off</code></td><td>other</td><td>Désactive le GameChat Switch 2 (non supporté par l'API)</td></tr>
+      <tr><td>Rafraîchir</td><td><code>rafraichir</code></td><td>other</td><td>Mise à jour immédiate depuis l'API Nintendo. La page se recharge automatiquement une fois les données reçues.</td></tr>
+      <tr><td>Bloquer maintenant</td><td><code>bloquer_maintenant</code></td><td>other</td><td>Suspend l'accès à la console immédiatement</td></tr>
+      <tr><td>Lever la restriction</td><td><code>lever_restriction</code></td><td>other</td><td>Restaure l'accès normal à la console</td></tr>
+      <tr><td>Ajouter 15 min</td><td><code>ajouter_temps_15</code></td><td>other</td><td>Accorde 15 minutes de temps de jeu en bonus</td></tr>
+      <tr><td>Ajouter 30 min</td><td><code>ajouter_temps_30</code></td><td>other</td><td>Accorde 30 minutes de temps de jeu en bonus</td></tr>
+      <tr><td>Ajouter 60 min</td><td><code>ajouter_temps_60</code></td><td>other</td><td>Accorde 60 minutes de temps de jeu en bonus</td></tr>
+      <tr><td>Définir limite</td><td><code>definir_limite</code></td><td>slider 0–360</td><td>Fixe la limite quotidienne globale en minutes (0 = bloqué, 360 = 6h)</td></tr>
+      <tr><td>Mode alerte</td><td><code>mode_alerte</code></td><td>other</td><td>Active le mode alerte : notification envoyée à la fin du temps, sans couper la console</td></tr>
+      <tr><td>Mode blocage</td><td><code>mode_blocage</code></td><td>other</td><td>Active le mode blocage : la console se coupe automatiquement à la fin du temps</td></tr>
+      <tr><td>Activer GameChat</td><td><code>gamechat_on</code></td><td>other</td><td>Active le GameChat Switch 2 (Switch 2 uniquement)</td></tr>
+      <tr><td>Désactiver GameChat</td><td><code>gamechat_off</code></td><td>other</td><td>Désactive le GameChat Switch 2 (Switch 2 uniquement)</td></tr>
     </tbody>
   </table>
 
@@ -601,31 +708,37 @@
   <div class="scenario">
     <h4>🍽️ Couper la console à l'heure du dîner</h4>
     <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Tous les jours à 18h30</div></div>
-    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 0</div></div>
-    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Thiebault][Bloquer maintenant]</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Aldarande][console_bloquee] == 0</div></div>
+    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Aldarande][Bloquer maintenant]</div></div>
     <div class="sc-row"><div class="sc-label">Action 2</div><div class="sc-val">Message push : "Console coupée pour le dîner"</div></div>
   </div>
 
   <div class="scenario">
     <h4>⏰ Alerter si le temps dépasse 2h</h4>
-    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">[Switch Thiebault][temps_jour] change de valeur</div></div>
-    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][temps_jour] &gt; 120</div></div>
-    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Message push : "Thiebault a joué plus de 2h aujourd'hui"</div></div>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">[Switch Aldarande][temps_jour] change de valeur</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Aldarande][temps_jour] &gt; 120</div></div>
+    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Message push : "Plus de 2h de jeu aujourd'hui"</div></div>
   </div>
 
   <div class="scenario">
     <h4>🎉 Bonus le vendredi soir</h4>
     <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Vendredi à 20h00</div></div>
-    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 0</div></div>
-    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Thiebault][Ajouter 60 min]</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Aldarande][console_bloquee] == 0</div></div>
+    <div class="sc-row"><div class="sc-label">Action 1</div><div class="sc-val">Commande [Switch Aldarande][Ajouter 60 min]</div></div>
     <div class="sc-row"><div class="sc-label">Action 2</div><div class="sc-val">Message push : "Bonus d'1h accordé ce vendredi !"</div></div>
   </div>
 
   <div class="scenario">
     <h4>🌙 Restaurer l'accès le matin</h4>
     <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Tous les jours à 8h00</div></div>
-    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Thiebault][console_bloquee] == 1</div></div>
-    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Commande [Switch Thiebault][Lever la restriction]</div></div>
+    <div class="sc-row"><div class="sc-label">Condition</div><div class="sc-val">[Switch Aldarande][console_bloquee] == 1</div></div>
+    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Commande [Switch Aldarande][Lever la restriction]</div></div>
+  </div>
+
+  <div class="scenario">
+    <h4>📊 Rapport hebdomadaire de temps de jeu</h4>
+    <div class="sc-row"><div class="sc-label">Déclencheur</div><div class="sc-val">Dimanche à 21h00</div></div>
+    <div class="sc-row"><div class="sc-label">Action</div><div class="sc-val">Message push : "Cette semaine : " + [Switch Aldarande][Temps de jeu (sem.)] + " minutes de jeu"</div></div>
   </div>
 
   <!-- ── Dépannage ─────────────────────────────────────────────────────── -->
@@ -709,9 +822,27 @@
     <tbody>
       <tr><td>Port démon</td><td><code>8347</code></td><td>Mini-serveur HTTP pour les actions Jeedom → démon</td></tr>
       <tr><td>Polling par défaut</td><td>5 minutes</td><td>Intervalle de mise à jour des données Nintendo</td></tr>
-      <tr><td>Timeout callback</td><td>5 secondes</td><td>Délai max pour la réponse de Jeedom</td></tr>
+      <tr><td>Timeout callback</td><td>30 secondes</td><td>Délai max pour la réponse de Jeedom (actions longues comme le rafraîchissement)</td></tr>
     </tbody>
   </table>
+
+  <!-- ── Changelog ──────────────────────────────────────────────────────── -->
+  <h2 id="changelog">Changelog</h2>
+
+  <div style="border-left:3px solid #E4000F;padding-left:20px;margin-bottom:28px;">
+    <h3 style="margin-top:0;color:#E4000F;">v0.1 — 2025-04 — Version initiale</h3>
+    <ul style="padding-left:18px;margin-top:8px;">
+      <li>Supervision des profils Nintendo Switch &amp; Switch 2</li>
+      <li>Temps de jeu du jour, de la semaine, temps restant</li>
+      <li>Historique graphique 7 jours avec limite quotidienne</li>
+      <li>Jeu en cours avec pochette téléchargée localement</li>
+      <li>Actions : bloquer, lever restriction, ajouter du temps (+15/+30/+60 min), définir limite</li>
+      <li>Gestion GameChat (Switch 2)</li>
+      <li>Assistant OAuth 3 étapes pour l'obtention du token Nintendo</li>
+      <li>Démon Python asyncio avec polling configurable (défaut 5 min)</li>
+      <li>Cache local des images de jeux (évite les restrictions CORS Nintendo CDN)</li>
+    </ul>
+  </div>
 
   <div style="margin-top:48px;padding-top:24px;border-top:1px solid #e8e8e8;font-size:0.82em;color:#888;text-align:center;">
     JeeNinSwi — Auteur : Antoine (Aldarande) —

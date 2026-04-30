@@ -87,18 +87,19 @@ class jeeninswi extends eqLogic {
         log::add(__CLASS__, 'debug', '[deamon_start] Démarrage demandé (debug=' . ($_debug ? 'true' : 'false') . ')');
         self::deamon_stop();
 
-        // Collecter device_ids et poll_cron depuis les équipements
-        $device_ids_arr = [];
-        $poll_cron      = self::POLL_CRON;
+        // Construire le mapping token → [device_ids] depuis tous les équipements actifs
+        $token_devices_map = [];
+        $poll_cron         = self::POLL_CRON;
         foreach (eqLogic::byType(__CLASS__) as $eq) {
-            $did = $eq->getConfiguration('device_id', '');
-            if (!empty($did)) {
-                $device_ids_arr[] = $did;
+            $did   = $eq->getConfiguration('device_id', '');
+            $token = $eq->getConfiguration('nintendo_token', '');
+            if (!empty($did) && !empty($token)) {
+                $token_devices_map[$token][] = $did;
                 $poll_cron = $eq->getConfiguration('poll_cron', self::POLL_CRON) ?: $poll_cron;
             }
         }
-        $device_ids  = json_encode(array_values(array_unique($device_ids_arr)));
-        log::add(__CLASS__, 'debug', '[deamon_start] Équipements collectés — device_ids=' . $device_ids . ', poll_cron=' . $poll_cron);
+        $tokens_json = json_encode($token_devices_map);
+        log::add(__CLASS__, 'debug', '[deamon_start] ' . count($token_devices_map) . ' compte(s) Nintendo — poll_cron=' . $poll_cron);
 
         $pid_file     = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
         $log_file     = log::getPathToLog(__CLASS__);
@@ -109,7 +110,8 @@ class jeeninswi extends eqLogic {
         $callback_url = 'http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=' . urlencode($api_key);
 
         log::add(__CLASS__, 'debug', '[deamon_start] Port=' . $socket_port . ', PID file=' . $pid_file);
-        log::add(__CLASS__, 'debug', '[deamon_start] Callback URL=' . $callback_url);
+        // SECURITY: ne pas loguer la clé API en clair
+        log::add(__CLASS__, 'debug', '[deamon_start] Callback URL=http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=****');
 
         // Utiliser le Python du venv si disponible, sinon python3 système (fallback)
         $venv_python = dirname(__FILE__) . '/../../resources/venv/bin/python3';
@@ -117,16 +119,25 @@ class jeeninswi extends eqLogic {
         log::add(__CLASS__, 'debug', '[deamon_start] Python utilisé : ' . $python_bin);
 
         $cmd  = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py');
-        $cmd .= ' --device-ids ' . escapeshellarg($device_ids);
-        $cmd .= ' --port '       . $socket_port;
-        $cmd .= ' --callback '   . escapeshellarg($callback_url);
-        $cmd .= ' --poll-cron '  . escapeshellarg($poll_cron);
-        $cmd .= ' --pid-file '   . escapeshellarg($pid_file);
-        $cmd .= ' --log-file '   . escapeshellarg($log_file);
+        $cmd .= ' --tokens '    . escapeshellarg($tokens_json);
+        $cmd .= ' --port '      . $socket_port;
+        $cmd .= ' --callback '  . escapeshellarg($callback_url);
+        $cmd .= ' --poll-cron ' . escapeshellarg($poll_cron);
+        $cmd .= ' --pid-file '  . escapeshellarg($pid_file);
+        $cmd .= ' --log-file '  . escapeshellarg($log_file);
         $cmd .= $_debug ? ' --debug' : '';
         $cmd .= ' > /dev/null 2>&1 &';
 
-        log::add(__CLASS__, 'info', 'Démarrage démon : ' . $cmd);
+        // SECURITY: construire une version masquée pour les logs (tokens Nintendo et clé API retirés)
+        $cmd_log = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py')
+                 . ' --tokens [MASKED]'
+                 . ' --port '      . $socket_port
+                 . ' --callback [MASKED]'
+                 . ' --poll-cron ' . escapeshellarg($poll_cron)
+                 . ' --pid-file '  . escapeshellarg($pid_file)
+                 . ' --log-file '  . escapeshellarg($log_file)
+                 . ($_debug ? ' --debug' : '');
+        log::add(__CLASS__, 'info', 'Démarrage démon : ' . $cmd_log);
         shell_exec($cmd);
 
         $timeout = 60;
@@ -293,6 +304,11 @@ class jeeninswi extends eqLogic {
             $this->checkAndUpdateCmd('timeline_json', json_encode($_data['daily_summaries']));
         }
 
+        // Dernière synchronisation
+        if (isset($_data['last_sync'])) {
+            $this->checkAndUpdateCmd('derniere_synchro', $_data['last_sync']);
+        }
+
         log::add(__CLASS__, 'debug', '[updateFromData] Mise à jour terminée pour équipement #' . $this->getId());
     }
 
@@ -323,7 +339,7 @@ class jeeninswi extends eqLogic {
                 'method'  => 'POST',
                 'header'  => 'Content-Type: application/json',
                 'content' => json_encode($payload),
-                'timeout' => 10,
+                'timeout' => 30,
             ]
         ];
         $result = @file_get_contents($url, false, stream_context_create($opts));
@@ -356,6 +372,7 @@ class jeeninswi extends eqLogic {
             ['historique_jeux',    'Historique jeux',     'string',  'gamepad'],
             ['historique_joueurs', 'Historique joueurs',  'string',  'person'],
             ['timeline_json',      'Timeline 7 jours',    'string',  'history'],
+            ['derniere_synchro',   'Dernière synchro',    'string',  'clock'],
             ['mode_restriction',  'Mode restriction',    'binary',  'lock'],
             ['gamechat_actif',    'GameChat actif',      'binary',  'chat'],
             ['console_bloquee',   'Console bloquée',     'binary',  'lock'],
@@ -474,8 +491,9 @@ class jeeninswi extends eqLogic {
         $tempsRestant = $this->getCmd('info', 'temps_restant') ? intval($this->getCmd('info', 'temps_restant')->execCmd()) : -1;
         $tempsLimite  = $this->getCmd('info', 'temps_limite')  ? intval($this->getCmd('info', 'temps_limite')->execCmd())  : 0;
         $replace['#temps_jour_fmt#']    = self::formatMinutes($tempsJour);
-        $replace['#temps_restant_fmt#'] = $tempsRestant >= 0 ? self::formatMinutes($tempsRestant) : 'Illimite';
+        $replace['#temps_restant_fmt#'] = $tempsRestant >= 0 ? self::formatMinutes($tempsRestant) : 'Illimitée';
         $replace['#temps_limite#']      = $tempsLimite;
+        $replace['#temps_limite_fmt#']  = $tempsLimite > 0 ? self::formatMinutes($tempsLimite) : ($tempsLimite === 0 ? 'Bloquée' : 'Illimitée');
 
         // Statut binaires
         $replace['#bloquee#']          = intval($this->getCmd('info', 'console_bloquee')  ? $this->getCmd('info', 'console_bloquee')->execCmd()  : 0);
@@ -485,6 +503,11 @@ class jeeninswi extends eqLogic {
         $rawTimeline  = $this->getCmd('info', 'timeline_json') ? $this->getCmd('info', 'timeline_json')->execCmd() : '[]';
         $timelineData = json_decode($rawTimeline, true) ?: [];
         $replace['#timeline_json#'] = json_encode($timelineData);
+
+        // Dernière synchronisation
+        $cmdSync = $this->getCmd('info', 'derniere_synchro');
+        $replace['#derniere_synchro#']  = $cmdSync ? htmlspecialchars($cmdSync->execCmd() ?? '—') : '—';
+        $replace['#cmd_synchro_id#']   = $cmdSync ? $cmdSync->getId() : '0';
 
         // ID de l'équipement — indispensable pour les getElementById() du template JS
         $replace['#eqLogic_id#'] = $this->getId();

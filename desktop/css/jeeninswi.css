@@ -176,27 +176,25 @@
 .nsw .nsw-name:hover { color: #8b9ec7; }
 
 /* ── Bande temps restant ────────────────────────────────── */
-.nsw .nsw-band { background: #e60012; border-radius: 8px; text-align: center; padding: 9px; font-size: 17px; font-weight: 900; letter-spacing: .5px; margin-bottom: 10px; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.nsw .nsw-band { background: #e60012; border-radius: 8px; text-align: center; padding: 6px; font-size: 14px; font-weight: 900; letter-spacing: .5px; margin-bottom: 10px; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
 
 /* ── Chart ──────────────────────────────────────────────── */
 .nsw .nsw-chart  { background: #f1f5f9; border-radius: 10px; padding: 8px 8px 4px; margin-bottom: 8px; }
 .nsw .nsw-ctitle { font-size: 8px; font-weight: 800; color: #475569; letter-spacing: .8px; text-align: center; text-transform: uppercase; margin-bottom: 6px; }
-.nsw .nsw-cgrid  { display: flex; align-items: flex-start; }
-.nsw .nsw-yax    { width: 24px; flex-shrink: 0; }
-.nsw .nsw-ycell  { height: 14px; display: flex; align-items: center; justify-content: flex-end; padding-right: 3px; font-size: 7px; color: #64748b; font-weight: 700; line-height: 1; }
+.nsw .nsw-cgrid  { display: flex; align-items: stretch; height: 96px; }
+.nsw .nsw-yax    { width: 26px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 18px; }
+.nsw .nsw-ycell  { font-size: 7px; color: #64748b; font-weight: 700; text-align: right; padding-right: 3px; line-height: 1; }
 .nsw .nsw-cols   { flex: 1; display: flex; gap: 3px; }
-.nsw .nsw-dcol   { flex: 1; display: flex; flex-direction: column; }
-.nsw .nsw-block  { height: 12px; width: 100%; margin-bottom: 2px; border-radius: 2px; position: relative; }
-.nsw .b-empty { background: #cbd5e1; }
-.nsw .b-ok    { background: #22c55e; }
-.nsw .b-over  { background: #e60012; }
-.nsw .b-limit::after { content: ''; position: absolute; left: -3px; right: -3px; top: -1px; height: 2px; background: #1d4ed8; z-index: 2; }
-.nsw .nsw-dlbl { text-align: center; font-size: 7px; font-weight: 800; color: #475569; margin-top: 2px; line-height: 1.3; }
-.nsw .nsw-dcol.is-today .nsw-dlbl { color: #1d4ed8; }
+.nsw .nsw-dcol   { flex: 1; display: flex; flex-direction: column; position: relative; }
+.nsw .nsw-dbar   { flex: 1; display: flex; flex-direction: column-reverse; background: #cbd5e1; border-radius: 3px; overflow: hidden; }
+.nsw .nsw-dseg   { width: 100%; flex-shrink: 0; }
+.nsw .nsw-limit-col { position: absolute; left: 0; right: 0; height: 2px; background: #e60012; z-index: 3; pointer-events: none; }
+.nsw .nsw-dlbl { height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: 800; color: #475569; line-height: 1; }
+.nsw .nsw-dcol.is-yest .nsw-dlbl { color: #64748b; font-style: italic; }
 .nsw .nsw-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 8px; margin-top: 5px; }
 .nsw .nsw-leg    { display: flex; align-items: center; gap: 3px; font-size: 7.5px; color: #64748b; font-weight: 600; }
 .nsw .nsw-leg-sq   { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-.nsw .nsw-leg-line { width: 14px; height: 2px; background: #1d4ed8; border-radius: 1px; flex-shrink: 0; }
+.nsw .nsw-leg-line { width: 14px; height: 2px; background: #e60012; border-radius: 1px; flex-shrink: 0; }
 
 /* ── Joueurs + Jeux (2 colonnes) ────────────────────────── */
 .nsw .nsw-pj           { margin-bottom: 8px; }
@@ -208,6 +206,8 @@
 .nsw .nsw-pj-row:last-child { border-bottom: none; }
 .nsw .nsw-pj-img       { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 1px solid #334155; }
 .nsw .nsw-pj-ph        { display: inline-flex; align-items: center; justify-content: center; background: #1e293b; font-size: 12px; border-radius: 50%; }
+/* Images jeux : taille agrandie pour moins de flou, bordure colorée injectée par JS */
+.nsw .nsw-game-img     { width: 32px !important; height: 32px !important; border-radius: 5px !important; border-width: 2px !important; border-style: solid !important; image-rendering: auto; }
 .nsw .nsw-pj-name      { flex: 1; font-size: 9px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nsw .nsw-pj-ginfo     { flex: 1; min-width: 0; }
 .nsw .nsw-pj-ginfo .nsw-pj-name { margin-bottom: 2px; }
@@ -263,5 +263,8 @@
 .nsw .nsw-popup-ok     { flex: 1; background: #1d4ed8; border: none; border-radius: 6px; padding: 9px; color: #fff;    font-size: 9px; font-weight: 800; cursor: pointer; text-transform: uppercase; transition: background .15s; }
 .nsw .nsw-popup-cancel:hover { background: #475569; }
 .nsw .nsw-popup-ok:hover     { background: #2563eb; }
+
+/* ── Date dernière synchro ──────────────────────────────────── */
+.nsw .nsw-sync { margin-top: 6px; text-align: center; font-size: 7px; color: #475569; font-weight: 600; letter-spacing: .3px; opacity: .75; }
 
 @keyframes nsw-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

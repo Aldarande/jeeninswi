@@ -316,7 +316,7 @@
 <nav>
   <div class="logo">
     <h1>JeeNinSwi</h1>
-    <div class="version">Plugin Jeedom — v0.1</div>
+    <div class="version">Plugin Jeedom — v0.5</div>
   </div>
   <ul>
     <li class="section-title">Démarrage</li>
@@ -334,6 +334,10 @@
     <li><a href="#depannage">Dépannage</a></li>
     <li><a href="#architecture">Architecture</a></li>
     <li><a href="#changelog">Changelog</a></li>
+
+    <li class="section-title">Soutenir</li>
+    <li><a href="https://ko-fi.com/aldarande" target="_blank">☕ Ko-fi</a></li>
+    <li><a href="https://github.com/sponsors/Aldarande" target="_blank">♥ GitHub Sponsors</a></li>
   </ul>
 </nav>
 
@@ -830,7 +834,19 @@
   <h2 id="changelog">Changelog</h2>
 
   <div style="border-left:3px solid #E4000F;padding-left:20px;margin-bottom:28px;">
-    <h3 style="margin-top:0;color:#E4000F;">v0.1 — 2025-04 — Version initiale</h3>
+    <h3 style="margin-top:0;color:#E4000F;">v0.5 — 2026-04 — Widget v2 &amp; limites par jour</h3>
+    <ul style="padding-left:18px;margin-top:8px;">
+      <li>Affichage de la limite quotidienne par jour (plannings EACH_DAY_OF_THE_WEEK Nintendo)</li>
+      <li>Bande « LIMITE AUJ. » : limite effective du jour (tient compte du planning personnalisé)</li>
+      <li>Pochettes de jeux entourées de la couleur du graphique</li>
+      <li>Pochettes agrandies (32×32 px) pour réduire le flou</li>
+      <li>Documentation mise à jour : mockup réel, tableaux corrects, scénarios, liens GitHub Pages</li>
+      <li>Page beta.html créée</li>
+    </ul>
+  </div>
+
+  <div style="border-left:3px solid #ccc;padding-left:20px;margin-bottom:28px;">
+    <h3 style="margin-top:0;color:#555;">v0.1 — 2025-04 — Version initiale</h3>
     <ul style="padding-left:18px;margin-top:8px;">
       <li>Supervision des profils Nintendo Switch &amp; Switch 2</li>
       <li>Temps de jeu du jour, de la semaine, temps restant</li>
@@ -844,10 +860,21 @@
     </ul>
   </div>
 
-  <div style="margin-top:48px;padding-top:24px;border-top:1px solid #e8e8e8;font-size:0.82em;color:#888;text-align:center;">
-    JeeNinSwi — Auteur : Antoine (Aldarande) —
-    Bibliothèque : <a href="https://github.com/pantherale0/pynintendoparental">pynintendoparental</a> —
-    Protocole : <a href="https://github.com/samuelthomas2774/nxapi">nxapi</a>
+  <div style="margin-top:48px;padding-top:24px;border-top:1px solid #e8e8e8;text-align:center;">
+    <p style="font-size:0.95em;margin-bottom:14px;">Si vous appréciez ce plugin, vous pouvez le soutenir :</p>
+    <a href="https://ko-fi.com/aldarande" target="_blank"
+       style="display:inline-block;margin:6px 8px;padding:10px 22px;background:#FF5E5B;color:#fff;border-radius:6px;font-weight:700;text-decoration:none;font-size:0.95em;">
+      ☕ Ko-fi
+    </a>
+    <a href="https://github.com/sponsors/Aldarande" target="_blank"
+       style="display:inline-block;margin:6px 8px;padding:10px 22px;background:#24292e;color:#fff;border-radius:6px;font-weight:700;text-decoration:none;font-size:0.95em;">
+      ♥ GitHub Sponsors
+    </a>
+    <p style="margin-top:16px;font-size:0.82em;color:#888;">
+      JeeNinSwi — Auteur : Antoine (Aldarande) —
+      Bibliothèque : <a href="https://github.com/pantherale0/pynintendoparental">pynintendoparental</a> —
+      Protocole : <a href="https://github.com/samuelthomas2774/nxapi">nxapi</a>
+    </p>
   </div>
 
 </main>

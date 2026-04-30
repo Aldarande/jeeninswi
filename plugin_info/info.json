@@ -1,7 +1,7 @@
 {
   "id": "jeeninswi",
   "name": "JeeNinSwi",
-  "pluginVersion": "0.1",
+  "pluginVersion": "0.5",
   "description": {
     "fr_FR": "Contrôle parental Nintendo Switch & Switch 2 pour Jeedom. Supervision des profils, temps de jeu, blocage à distance.",
     "en_US": "Nintendo Switch & Switch 2 parental control for Jeedom. Monitor profiles, playtime, remote blocking."

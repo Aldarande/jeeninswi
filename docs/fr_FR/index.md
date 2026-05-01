@@ -278,7 +278,7 @@ Jeedom (PHP)          Démon Python          API Nintendo
 ```
 
 Le démon Python tourne en continu et poll l'API Nintendo toutes les 5 minutes (configurable).  
-Il écoute également sur `127.0.0.1:8347` pour les actions immédiates (refresh, bonus, blocage).
+Il écoute également sur `127.0.0.1:55147` pour les actions immédiates (refresh, bonus, blocage).
 
 ---
 

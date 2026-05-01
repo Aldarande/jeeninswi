@@ -1127,7 +1127,7 @@ def main():
         help='JSON object {token: [device_ids]} des comptes Nintendo à superviser au démarrage'
     )
     parser.add_argument(
-        '--port', type=int, default=8347,
+        '--port', type=int, default=55147,
         help='Port HTTP du démon (doit correspondre à DAEMON_PORT_DEFAULT dans la classe PHP)'
     )
     parser.add_argument(

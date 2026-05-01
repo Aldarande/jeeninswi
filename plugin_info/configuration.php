@@ -15,7 +15,7 @@ if (!isConnect()) {
             </label>
             <div class="col-md-2">
                 <input type="number" class="configKey form-control" data-l1key="socketport"
-                       placeholder="8347" min="1024" max="65535"/>
+                       placeholder="55147" min="1024" max="65535"/>
             </div>
         </div>
     </fieldset>

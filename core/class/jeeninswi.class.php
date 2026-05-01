@@ -8,7 +8,7 @@ class jeeninswi extends eqLogic {
      * CONSTANTES
      * ==========================================
      */
-    const DAEMON_PORT_DEFAULT = 8347;
+    const DAEMON_PORT_DEFAULT = 55147;
     const POLL_CRON = '*/5 * * * *'; // 5 minutes par défaut
 
     public static function getPort() {

@@ -11,6 +11,7 @@ Plugin de contrôle parental Nintendo Switch & Switch 2 pour Jeedom.
 - ✅ Lever les restrictions à distance
 - ⏰ Ajout de temps bonus (15 / 30 / 60 min)
 - 📅 Définition de la limite quotidienne
+- 📆 Plannings par jour (ex. 15 min en semaine, 3h le week-end)
 - 💬 Gestion du GameChat (Switch 2)
 - ✅ Compatible Nintendo Switch 1 et Switch 2
 
@@ -31,7 +32,7 @@ Plugin de contrôle parental Nintendo Switch & Switch 2 pour Jeedom.
 
 ## Structure du plugin
 
-```
+```text
 jeeninswi/
 ├── plugin_info/info.json           ← Métadonnées Jeedom
 ├── core/
@@ -45,8 +46,8 @@ jeeninswi/
 │   └── css/jeeninswi.css          ← Styles
 └── resources/
     ├── install_dep.sh              ← Installation dépendances
-    └── daemon/
-        └── daemon.py              ← Démon Python
+    └── jeeninswid/
+        └── jeeninswid.py          ← Démon Python
 ```
 
 ## API utilisée
@@ -60,10 +61,10 @@ intercepté, puis stocké de manière sécurisée dans la configuration Jeedom.
 ## Commandes disponibles
 
 ### Informations (lecture)
+
 | ID | Nom | Type |
-|----|-----|------|
+| --- | --- | --- |
 | pseudo | Pseudo | string |
-| avatar_url | Avatar URL | string |
 | statut_en_ligne | Statut en ligne | string |
 | jeu_en_cours | Jeu en cours | string |
 | temps_jour | Temps de jeu (jour) | numeric (min) |
@@ -75,8 +76,9 @@ intercepté, puis stocké de manière sécurisée dans la configuration Jeedom.
 | console_bloquee | Console bloquée | binary |
 
 ### Actions
+
 | ID | Nom | Paramètre |
-|----|-----|-----------|
+| --- | --- | --- |
 | bloquer_maintenant | Bloquer maintenant | — |
 | lever_restriction | Lever la restriction | — |
 | ajouter_temps_15 | Ajouter 15 min | — |
@@ -86,6 +88,13 @@ intercepté, puis stocké de manière sécurisée dans la configuration Jeedom.
 | gamechat_on | Activer GameChat | — |
 | gamechat_off | Désactiver GameChat | — |
 | rafraichir | Rafraîchir | — |
+
+## Soutenir le projet
+
+JeeNinSwi est gratuit et open-source. Si vous l'appréciez, vous pouvez soutenir son développement :
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Offrir%20un%20café-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/aldarande)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-Sponsoriser-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/Aldarande)
 
 ## Licence
 

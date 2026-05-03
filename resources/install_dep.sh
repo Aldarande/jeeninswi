@@ -1,7 +1,7 @@
 #!/bin/bash
 # JeeNinSwi - Installation des dépendances
 # Crée un environnement virtuel Python isolé dans resources/venv/
-# pour ne pas polluer le Python système (compatible Debian 12+, Python 3.11+).
+# pour ne pas polluer le Python système (compatible Python 3.9+, patch auto pour 3.9).
 #
 # Argument $1 = fichier de progression (chemin absolu)
 
@@ -55,6 +55,48 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "60" > "$PROGRESS_FILE"
+
+# ── Étape 4b : Patch compatibilité Python < 3.10 (pynintendoauth) ────────────
+PYTHON_MAJOR=$("$VENV_PYTHON" -c "import sys; print(sys.version_info.major)")
+PYTHON_MINOR=$("$VENV_PYTHON" -c "import sys; print(sys.version_info.minor)")
+if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; then
+    echo "[jeeninswi] Python 3.${PYTHON_MINOR} détecté — patch pynintendoauth (syntaxe X|None requiert 3.10+)..."
+    "$VENV_PYTHON" << 'PYEOF'
+import sys, re, os, glob
+
+site_packages = os.path.join(sys.prefix, 'lib',
+    'python{}.{}'.format(sys.version_info.major, sys.version_info.minor), 'site-packages')
+
+def patch_py_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception:
+        return False
+    original = content
+    if re.search(r'\w\s*\|\s*None\b|\bNone\s*\|\s*\w', content):
+        if 'from typing import' not in content:
+            content = 'from typing import Optional\n' + content
+        elif 'Optional' not in content:
+            content = re.sub(r'(from typing import\s+)', r'\1Optional, ', content, count=1)
+        content = re.sub(r'(\w+)\s*\|\s*None\b', r'Optional[\1]', content)
+        content = re.sub(r'\bNone\s*\|\s*(\w+)', r'Optional[\1]', content)
+    if content != original:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print('[jeeninswi] Patché : ' + os.path.relpath(path, site_packages))
+        return True
+    return False
+
+for pkg in ('pynintendoauth', 'pynintendoparental'):
+    pkg_dir = os.path.join(site_packages, pkg)
+    if os.path.isdir(pkg_dir):
+        for py_file in glob.glob(os.path.join(pkg_dir, '**', '*.py'), recursive=True):
+            patch_py_file(py_file)
+PYEOF
+    echo "[jeeninswi] Patch Python 3.9 terminé."
+fi
+echo "65" > "$PROGRESS_FILE"
 
 # ── Étape 5 : Installer aiohttp (HTTP async pour le démon) ───────────────────
 echo "[jeeninswi] Installation de aiohttp..."

@@ -73,20 +73,21 @@ def patch_py_file(path):
             content = f.read()
     except Exception:
         return False
-    original = content
-    if re.search(r'\w\s*\|\s*None\b|\bNone\s*\|\s*\w', content):
-        if 'from typing import' not in content:
-            content = 'from typing import Optional\n' + content
-        elif 'Optional' not in content:
-            content = re.sub(r'(from typing import\s+)', r'\1Optional, ', content, count=1)
-        content = re.sub(r'(\w+)\s*\|\s*None\b', r'Optional[\1]', content)
-        content = re.sub(r'\bNone\s*\|\s*(\w+)', r'Optional[\1]', content)
-    if content != original:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print('[jeeninswi] Patché : ' + os.path.relpath(path, site_packages))
-        return True
-    return False
+    # Ne patcher que les fichiers qui utilisent la syntaxe X | Y dans les annotations
+    if not re.search(r'\|\s*None\b|\bNone\s*\|', content):
+        return False
+    if 'from __future__ import annotations' in content:
+        return False
+    # Insérer après le shebang si présent, sinon en tête de fichier
+    if content.startswith('#!'):
+        nl = content.index('\n') + 1
+        content = content[:nl] + 'from __future__ import annotations\n' + content[nl:]
+    else:
+        content = 'from __future__ import annotations\n' + content
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print('[jeeninswi] Patché : ' + os.path.relpath(path, site_packages))
+    return True
 
 for pkg in ('pynintendoauth', 'pynintendoparental'):
     pkg_dir = os.path.join(site_packages, pkg)

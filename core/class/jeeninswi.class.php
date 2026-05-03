@@ -23,20 +23,24 @@ class jeeninswi extends eqLogic {
 
     public static function dependancy_info() {
         $return = [];
-        $return['log']           = log::getPathToLog(__CLASS__ . '_dependancy');
+        $return['log']           = __CLASS__ . '_dependancy';
         $return['progress_file'] = jeedom::getTmpFolder(__CLASS__) . '/dependancy';
 
         if (file_exists($return['progress_file'])) {
-            $return['state'] = 'in_progress';
+            $content = trim(file_get_contents($return['progress_file']));
+            if ($content === 'error') {
+                unlink($return['progress_file']);
+                $return['state'] = 'nok';
+            } else {
+                $return['state'] = 'in_progress';
+            }
         } else {
             $return['state'] = 'ok';
-            // Vérifier que le venv Python existe (resources/venv/bin/python3)
             $venv_python = dirname(__FILE__) . '/../../resources/venv/bin/python3';
             if (!file_exists($venv_python)) {
                 log::add(__CLASS__, 'debug', '[dependancy_info] venv introuvable : ' . $venv_python);
                 $return['state'] = 'nok';
             } else {
-                // Vérifier que pynintendoparental est importable dans le venv
                 $exit_code = 0;
                 $output    = [];
                 exec(escapeshellarg($venv_python) . ' -c "import pynintendoparental" 2>&1', $output, $exit_code);
@@ -64,6 +68,13 @@ class jeeninswi extends eqLogic {
         $return['log']        = __CLASS__;
         $return['state']      = 'nok';
         $return['launchable'] = 'ok';
+
+        $dep = self::dependancy_info();
+        if ($dep['state'] !== 'ok') {
+            $return['launchable']         = 'nok';
+            $return['launchable_message'] = __('Dépendances non installées. Cliquez sur "Installer les dépendances" dans la configuration du plugin.', __FILE__);
+            return $return;
+        }
 
         $pid_file = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
         log::add(__CLASS__, 'debug', '[deamon_info] Vérification PID : ' . $pid_file);

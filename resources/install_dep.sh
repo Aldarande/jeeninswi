@@ -67,27 +67,48 @@ import sys, re, os, glob
 site_packages = os.path.join(sys.prefix, 'lib',
     'python{}.{}'.format(sys.version_info.major, sys.version_info.minor), 'site-packages')
 
+STRENUM_SHIM = (
+    'try:\n'
+    '    from enum import StrEnum\n'
+    'except ImportError:\n'
+    '    class StrEnum(str, Enum):\n'
+    '        pass\n'
+)
+
 def patch_py_file(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
     except Exception:
         return False
-    # Ne patcher que les fichiers qui utilisent la syntaxe X | Y dans les annotations
-    if not re.search(r'\|\s*None\b|\bNone\s*\|', content):
-        return False
-    if 'from __future__ import annotations' in content:
-        return False
-    # Insérer après le shebang si présent, sinon en tête de fichier
-    if content.startswith('#!'):
-        nl = content.index('\n') + 1
-        content = content[:nl] + 'from __future__ import annotations\n' + content[nl:]
-    else:
-        content = 'from __future__ import annotations\n' + content
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(content)
-    print('[jeeninswi] Patché : ' + os.path.relpath(path, site_packages))
-    return True
+    original = content
+
+    # Patch 1 : X | None → from __future__ import annotations (Python 3.10+)
+    if re.search(r'\|\s*None\b|\bNone\s*\|', content):
+        if 'from __future__ import annotations' not in content:
+            if content.startswith('#!'):
+                nl = content.index('\n') + 1
+                content = content[:nl] + 'from __future__ import annotations\n' + content[nl:]
+            else:
+                content = 'from __future__ import annotations\n' + content
+
+    # Patch 2 : StrEnum absent de Python < 3.11
+    if re.search(r'from enum import.*\bStrEnum\b', content):
+        if 'class StrEnum' not in content:
+            content = re.sub(r',\s*StrEnum\b', '', content)
+            content = re.sub(r'\bStrEnum\s*,\s*', '', content)
+            content = re.sub(
+                r'(from enum import[^\n]*\n)',
+                r'\1' + STRENUM_SHIM,
+                content, count=1
+            )
+
+    if content != original:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print('[jeeninswi] Patché : ' + os.path.relpath(path, site_packages))
+        return True
+    return False
 
 for pkg in ('pynintendoauth', 'pynintendoparental'):
     pkg_dir = os.path.join(site_packages, pkg)

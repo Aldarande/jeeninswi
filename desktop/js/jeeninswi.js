@@ -12,13 +12,47 @@ $(document).ready(function () {
 
     // Ouvrir l'assistant token depuis l'onglet équipement
     $('#bt_openTokenWizard').on('click', function () {
+        const eqLogicId = $('.eqLogic .eqLogicAttr[data-l1key="id"]').val() || '';
         $('#md_modal').dialog({ title: 'Assistant Token Nintendo' });
-        $('#md_modal').load('index.php?v=d&plugin=jeeninswi&modal=token_setup').dialog('open');
+        $('#md_modal').load('index.php?v=d&plugin=jeeninswi&modal=token_setup&eqLogic_id=' + eqLogicId).dialog('open');
     });
+
+    // Surcharge du bouton "Ajouter" : pas de demande de nom, équipement créé directement
+    // (plugin.template.js est chargé après ce fichier mais les deux s'exécutent après
+    //  le chargement de tous les scripts — la surcharge est donc garantie)
+    if (typeof jeeFrontEnd !== 'undefined' && jeeFrontEnd.pluginTemplate) {
+        jeeFrontEnd.pluginTemplate.addEqLogic = function () {
+            jeedom.eqLogic.save({
+                type: eqType,
+                eqLogics: [{
+                    name: 'Nouvelle Switch',
+                    isEnable: '1',
+                    isVisible: '1',
+                    category: { multimedia: '1' }
+                }],
+                error: function (error) {
+                    jeedomUtils.showAlert({ message: error.message, level: 'danger' });
+                },
+                success: function (_data) {
+                    const vars = getUrlVars();
+                    let url = 'index.php?';
+                    for (const i in vars) {
+                        if (i !== 'id' && i !== 'saveSuccessFull' && i !== 'removeSuccessFull') {
+                            url += i + '=' + vars[i].replace('#', '') + '&';
+                        }
+                    }
+                    jeeFrontEnd.modifyWithoutSave = false;
+                    modifyWithoutSave = false;
+                    url += 'id=' + _data.id + '&saveSuccessFull=1';
+                    jeedomUtils.loadPage(url);
+                }
+            });
+        };
+    }
 
     // Charger les valeurs dès que l'onglet Commandes devient visible
     $(document).on('shown.bs.tab', 'a[href="#commandtab"]', function () {
-        var eqLogicId = $('.eqLogic .eqLogicAttr[data-l1key="id"]').val();
+        const eqLogicId = $('.eqLogic .eqLogicAttr[data-l1key="id"]').val();
         if (eqLogicId) jeeninswi.loadCmdValues(eqLogicId);
     });
 
@@ -36,16 +70,16 @@ var jeeninswi = {
         if (!eqLogicId) return;
         // Méthode 1 : API core Jeedom — lit la valeur en cache pour chaque commande
         $('#table_cmd .nsw-val-display[data-cmd_id]').each(function () {
-            var $span  = $(this);
-            var cmdId  = $span.data('cmd_id');
+            const $span = $(this);
+            const cmdId = $span.data('cmd_id');
             if (!cmdId) return;
             jeedom.cmd.getStatCmd({
                 id: cmdId,
                 success: function (data) {
                     if (!data) return;
-                    var v = (data.value !== undefined) ? data.value : (data.state !== undefined ? data.state : null);
+                    const v = (data.value !== undefined) ? data.value : (data.state !== undefined ? data.state : null);
                     if (v === null || v === undefined || v === '') { return; }
-                    var s = String(v);
+                    let s = String(v);
                     if (s.length > 80) { s = s.substring(0, 80) + '…'; }
                     $span.text(s).removeClass('label-default').addClass('label-info');
                 }
@@ -55,19 +89,19 @@ var jeeninswi = {
 };
 
 // ─── Onglet Commandes ────────────────────────────────────────────────────────
-function addCmdToTable(_cmd) {
-    if (!isset(_cmd)) { _cmd = {}; }
-    if (!isset(_cmd.id)) { _cmd.id = ''; }
+function addCmdToTable(cmdParam) {
+    const cmd = (isset(cmdParam) ? cmdParam : {});
+    if (!isset(cmd.id)) { cmd.id = ''; }
 
-    var isInfo    = (init(_cmd.type) === 'info');
-    var isAction  = (init(_cmd.type) === 'action');
-    var isNumeric = (init(_cmd.subType) === 'numeric');
+    const isInfo    = (init(cmd.type) === 'info');
+    const isAction  = (init(cmd.type) === 'action');
+    const isNumeric = (init(cmd.subType) === 'numeric');
 
-    var tr = '<tr class="cmd" data-cmd_id="' + init(_cmd.id) + '">';
+    let tr = '<tr class="cmd" data-cmd_id="' + init(cmd.id) + '">';
 
     // ── Colonne # ──────────────────────────────────────────────────────────
     tr += '<td style="text-align:center;vertical-align:middle;">';
-    tr += '<span class="cmdAttr" data-l1key="id">' + init(_cmd.id) + '</span>';
+    tr += '<span class="cmdAttr" data-l1key="id">' + init(cmd.id) + '</span>';
     tr += '</td>';
 
     // ── Colonne Nom ────────────────────────────────────────────────────────
@@ -89,11 +123,11 @@ function addCmdToTable(_cmd) {
     tr += '<td style="vertical-align:middle;">';
     if (isInfo) {
         // currentValue peut être vide au premier chargement ; loadCmdValues() le complétera
-        var curVal = init(_cmd.currentValue) || init(_cmd.state) || '—';
+        let curVal = init(cmd.currentValue) || init(cmd.state) || '—';
         if (curVal.length > 80) { curVal = curVal.substring(0, 80) + '…'; }
         tr += '<span class="nsw-val-display label label-default"'
-            + ' data-cmd_id="' + init(_cmd.id) + '"'
-            + ' data-logical_id="' + init(_cmd.logicalId) + '"'
+            + ' data-cmd_id="' + init(cmd.id) + '"'
+            + ' data-logical_id="' + init(cmd.logicalId) + '"'
             + ' style="display:inline-block;max-width:100%;word-break:break-all;font-size:11px;font-weight:normal;padding:3px 6px;white-space:normal;">'
             + $('<span>').text(curVal).html()
             + '</span>';
@@ -126,7 +160,7 @@ function addCmdToTable(_cmd) {
 
     tr += '</tr>';
 
-    var $tr = $(tr);
+    const $tr = $(tr);
     $('#table_cmd tbody').append($tr);
-    $tr.setValues(_cmd, '.cmdAttr');
+    $tr.setValues(cmd, '.cmdAttr');
 }

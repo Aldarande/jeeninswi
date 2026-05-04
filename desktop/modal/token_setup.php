@@ -2,20 +2,21 @@
 if (!isConnect('admin')) {
     throw new Exception('{{401 - Accès non autorisé}}');
 }
+$current_eqLogic_id = intval(init('eqLogic_id'));
 // Uniquement les chaînes utilisées dans le JS (json_encode pour sécurité des apostrophes)
 $js_err_redirect  = json_encode(__('Veuillez coller l\'URL de redirection npf://...', __FILE__));
 $js_err_comm      = json_encode(__('Erreur de communication avec le serveur', __FILE__));
-$js_msg_saved     = json_encode(__('Configuration sauvegardée ! Rechargez la page.', __FILE__));
+$js_msg_saved     = json_encode(__('Configuration sauvegardée !', __FILE__));
 $js_msg_no_device = json_encode(__('Aucune console trouvée. Vérifiez que votre compte Nintendo est lié au Contrôle Parental.', __FILE__));
 $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
 ?>
 <div class="modal-dialog modal-lg">
     <div class="modal-content">
-        <div class="modal-header" style="background:#e4000f;color:#fff;">
-            <button type="button" class="close" data-dismiss="modal" style="color:#fff;">
+        <div class="modal-header" style="background:#e4000f;">
+            <button type="button" class="close" data-dismiss="modal" style="color:#fff;opacity:1;">
                 <span aria-hidden="true">&times;</span>
             </button>
-            <h4 class="modal-title">
+            <h4 class="modal-title" style="color:#fff;">
                 <i class="fas fa-key"></i> {{Assistant de configuration — Token Nintendo}}
             </h4>
         </div>
@@ -24,7 +25,7 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
 
             <!-- Étape 1 -->
             <div id="ninswi-step-1" class="ninswi-wizard-step">
-                <span class="badge" style="background:#e4000f;font-size:16px;">1</span>
+                <span class="badge" style="background:#e4000f;color:#fff;font-size:16px;min-width:26px;padding:4px 7px;border-radius:50%;">1</span>
                 <strong style="margin-left:8px;font-size:16px;">{{Démarrer l'authentification Nintendo}}</strong>
                 <br><br>
                 <div class="alert alert-info">
@@ -44,7 +45,7 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
 
             <!-- Étape 2 -->
             <div id="ninswi-step-2" class="ninswi-wizard-step" style="display:none;">
-                <span class="badge" style="background:#e4000f;font-size:16px;">2</span>
+                <span class="badge" style="background:#e4000f;color:#fff;font-size:16px;min-width:26px;padding:4px 7px;border-radius:50%;">2</span>
                 <strong style="margin-left:8px;font-size:16px;">{{Connexion Nintendo}}</strong>
                 <br><br>
                 <div class="alert alert-warning">
@@ -53,17 +54,15 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
                 </div>
                 <div class="form-group">
                     <label>{{URL de connexion Nintendo :}}</label>
-                    <div class="input-group">
+                    <div style="display:flex;gap:4px;align-items:stretch;">
                         <input type="text" id="ninswi-auth-url" class="form-control" readonly
-                               placeholder="{{Generation en cours...}}"/>
-                        <span class="input-group-btn">
-                            <button class="btn btn-default" id="ninswi-btn-open-url">
-                                <i class="fas fa-external-link-alt"></i>
-                            </button>
-                            <button class="btn btn-default" id="ninswi-btn-copy-url">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </span>
+                               placeholder="{{Generation en cours...}}" style="flex:1;"/>
+                        <button class="btn btn-default" id="ninswi-btn-open-url" title="{{Ouvrir dans le navigateur}}" style="flex-shrink:0;">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                        <button class="btn btn-default" id="ninswi-btn-copy-url" title="{{Copier l'URL}}" style="flex-shrink:0;">
+                            <i class="fas fa-copy"></i>
+                        </button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -83,7 +82,7 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
 
             <!-- Étape 3 -->
             <div id="ninswi-step-3" class="ninswi-wizard-step" style="display:none;">
-                <span class="badge" style="background:#e4000f;font-size:16px;">3</span>
+                <span class="badge" style="background:#e4000f;color:#fff;font-size:16px;min-width:26px;padding:4px 7px;border-radius:50%;">3</span>
                 <strong style="margin-left:8px;font-size:16px;">{{Consoles detectees}}</strong>
                 <br><br>
                 <div id="ninswi-devices-list">
@@ -122,6 +121,7 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
     var sessionToken    = '';
     var detectedDevices = [];
     var AJAX_URL        = 'plugins/jeeninswi/core/ajax/jeeninswi.ajax.php';
+    var CURRENT_EQ_ID   = <?php echo $current_eqLogic_id; ?>;
 
     function showStep(n) {
         $('.ninswi-wizard-step').hide();
@@ -244,7 +244,12 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
         $.ajax({
             type: 'POST',
             url: AJAX_URL,
-            data: { action: 'saveTokenAndDevices', session_token: sessionToken, devices: JSON.stringify(selected) },
+            data: {
+                action: 'saveTokenAndDevices',
+                session_token: sessionToken,
+                devices: JSON.stringify(selected),
+                eqLogic_id: CURRENT_EQ_ID
+            },
             dataType: 'json',
             success: function(data) {
                 btnRestore($btn);
@@ -253,7 +258,19 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
                     return;
                 }
                 $('#div_alert').showAlert({ message: MSG_SAVED, level: 'success' });
-                setTimeout(function() { location.reload(); }, 2000);
+                setTimeout(function() {
+                    try { $('#md_modal').dialog('close'); } catch(e) {}
+                    // Recharger la page plugin sans "id" pour que PHP régénère
+                    // la liste des équipements avec les consoles nouvellement créées
+                    var vars = getUrlVars();
+                    var url = 'index.php?';
+                    for (var i in vars) {
+                        if (i !== 'id' && i !== 'saveSuccessFull' && i !== 'removeSuccessFull') {
+                            url += i + '=' + vars[i].replace('#', '') + '&';
+                        }
+                    }
+                    jeedomUtils.loadPage(url);
+                }, 1200);
             },
             error: function() {
                 btnRestore($btn);

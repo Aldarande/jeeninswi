@@ -137,8 +137,10 @@ try {
     // ── Assistant token — Étape 3 : sauvegarder et créer les équipements ──────
     if (init('action') == 'saveTokenAndDevices') {
         log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — sauvegarde token et création équipements');
-        $token   = init('session_token');   // Clé 'session_token' pour éviter toute confusion avec le token AJAX Jeedom
-        $devices = json_decode(init('devices'), true);
+        $token            = init('session_token');   // Clé 'session_token' pour éviter toute confusion avec le token AJAX Jeedom
+        $devices          = json_decode(init('devices'), true);
+        $currentEqId      = intval(init('eqLogic_id'));
+        $firstDeviceDone  = false;
 
         if (empty($token)) {
             throw new Exception(__('Token Nintendo manquant', __FILE__));
@@ -147,7 +149,16 @@ try {
             throw new Exception(__('Liste de consoles invalide', __FILE__));
         }
 
-        log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — ' . count($devices) . ' console(s) à traiter');
+        // Vérifier que l'équipement courant existe et appartient bien au plugin
+        $currentEq = null;
+        if ($currentEqId > 0) {
+            $eq = eqLogic::byId($currentEqId);
+            if (is_object($eq) && $eq->getEqType_name() === 'jeeninswi') {
+                $currentEq = $eq;
+            }
+        }
+
+        log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — ' . count($devices) . ' console(s) à traiter, eqLogic_id=' . $currentEqId);
         $created = [];
 
         foreach ($devices as $device) {
@@ -166,12 +177,8 @@ try {
                 $name = 'Console ' . strtoupper(substr($deviceId, 0, 8));
             }
 
-            // Déduplications : chercher si un équipement existe déjà pour ce device_id
-            // byTypeAndSearchConfiguration avec array déclenche JSON_CONTAINS en base
-            $existing = eqLogic::byTypeAndSearchConfiguration(
-                'jeeninswi',
-                ['device_id' => $deviceId]
-            );
+            // Déduplication : chercher si un équipement existe déjà pour ce device_id
+            $existing = eqLogic::byTypeAndSearchConfiguration('jeeninswi', ['device_id' => $deviceId]);
 
             if (!empty($existing)) {
                 // Équipement existant : mise à jour du token uniquement — le nom Jeedom est conservé
@@ -183,16 +190,40 @@ try {
                     $eq->setConfiguration('nintendo_token', $token);
                     $eq->save();
                 }
+                // Si c'est la première console et qu'elle correspond à l'équipement courant, on le marque comme traité
+                if (!$firstDeviceDone && $currentEq !== null) {
+                    foreach ($existing as $eq) {
+                        if ($eq->getId() == $currentEqId) { $firstDeviceDone = true; break; }
+                    }
+                }
                 continue;
             }
 
-            // Création d'un nouvel équipement Jeedom
+            // Première console sélectionnée → renseigner l'équipement courant (déjà créé vide)
+            if (!$firstDeviceDone && $currentEq !== null) {
+                log::add('jeeninswi', 'debug',
+                    '[ajax] saveTokenAndDevices — première console "' . $name
+                    . '" → mise à jour équipement courant #' . $currentEqId
+                );
+                $currentEq->setName($name);
+                $currentEq->setIsEnable(1);
+                $currentEq->setIsVisible(1);
+                $currentEq->setCategory('multimedia', 1);
+                $currentEq->setConfiguration('device_id', $deviceId);
+                $currentEq->setConfiguration('nintendo_token', $token);
+                $currentEq->save();
+                $firstDeviceDone = true;
+                continue;
+            }
+
+            // Consoles supplémentaires → créer un nouvel équipement
             log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — création équipement "' . $name . '" (device_id=' . $deviceId . ')');
             $eqLogic = new jeeninswi();
             $eqLogic->setName($name);
             $eqLogic->setEqType_name('jeeninswi');
             $eqLogic->setIsEnable(1);
             $eqLogic->setIsVisible(1);
+            $eqLogic->setCategory('multimedia', 1);
             $eqLogic->setConfiguration('device_id', $deviceId);
             $eqLogic->setConfiguration('nintendo_token', $token);
             $eqLogic->save();

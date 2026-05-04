@@ -15,7 +15,7 @@ echo "[jeeninswi] Début installation dépendances"
 echo "[jeeninswi] Répertoire resources : $SCRIPT_DIR"
 echo "[jeeninswi] Répertoire venv      : $VENV_DIR"
 
-# ── Étape 1 : Vérifier que python3-venv est disponible ───────────────────────
+# ── Étape 1 : Vérifier que python3 est disponible ────────────────────────────
 echo "[jeeninswi] Vérification de python3..."
 python3 --version 2>&1
 if [ $? -ne 0 ]; then
@@ -25,28 +25,57 @@ if [ $? -ne 0 ]; then
 fi
 echo "10" > "$PROGRESS_FILE"
 
-# ── Étape 2 : Créer le venv si absent (ou le recréer si corrompu) ─────────────
-if [ ! -f "$VENV_PYTHON" ]; then
-    echo "[jeeninswi] Création du venv Python dans $VENV_DIR..."
-    python3 -m venv "$VENV_DIR" 2>&1
-    if [ $? -ne 0 ]; then
-        echo "[jeeninswi] ERREUR: Impossible de créer le venv."
-        echo "[jeeninswi]   → Sur Debian/Ubuntu : apt-get install -y python3-venv"
+# ── Étape 2 : Vérifier python3-venv, installer via apt-get si absent ─────────
+echo "[jeeninswi] Vérification du module venv..."
+python3 -m venv --help > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "[jeeninswi] Module python3-venv absent — tentative d'installation automatique..."
+    if command -v apt-get > /dev/null 2>&1; then
+        sudo apt-get install -y python3-venv 2>&1
+        if [ $? -ne 0 ]; then
+            echo "[jeeninswi] ERREUR: Impossible d'installer python3-venv via apt-get"
+            echo "error" > "$PROGRESS_FILE"
+            exit 1
+        fi
+        echo "[jeeninswi] python3-venv installé avec succès."
+        # Vérifier que le module est maintenant disponible
+        python3 -m venv --help > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo "[jeeninswi] ERREUR: python3-venv toujours indisponible après installation"
+            echo "error" > "$PROGRESS_FILE"
+            exit 1
+        fi
+    else
+        echo "[jeeninswi] ERREUR: Module python3-venv absent et apt-get non disponible."
+        echo "[jeeninswi]   → Installez python3-venv manuellement selon votre distribution."
         echo "error" > "$PROGRESS_FILE"
         exit 1
     fi
-    echo "[jeeninswi] venv créé avec succès."
-else
-    echo "[jeeninswi] venv déjà présent — mise à jour des paquets uniquement."
 fi
 echo "20" > "$PROGRESS_FILE"
 
-# ── Étape 3 : Mettre à jour pip dans le venv ─────────────────────────────────
-echo "[jeeninswi] Mise à jour de pip dans le venv..."
-"$VENV_PYTHON" -m pip install --upgrade pip 2>&1
+# ── Étape 3 : Supprimer l'ancien venv puis recréer (état propre garanti) ─────
+echo "[jeeninswi] Suppression de l'ancien venv (si présent)..."
+rm -rf "$VENV_DIR"
+echo "[jeeninswi] Création du venv Python dans $VENV_DIR..."
+python3 -m venv "$VENV_DIR" 2>&1
+
+# Vérification explicite : le binaire python3 doit exister dans le venv
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "[jeeninswi] ERREUR: $VENV_PYTHON introuvable après la création du venv."
+    echo "[jeeninswi]   → La création du venv a échoué (dossier absent ou incomplet)."
+    echo "error" > "$PROGRESS_FILE"
+    exit 1
+fi
+echo "[jeeninswi] venv créé avec succès ($(\"$VENV_PYTHON\" --version 2>&1))."
 echo "30" > "$PROGRESS_FILE"
 
-# ── Étape 4 : Installer pynintendoparental ────────────────────────────────────
+# ── Étape 4 : Mettre à jour pip dans le venv ─────────────────────────────────
+echo "[jeeninswi] Mise à jour de pip dans le venv..."
+"$VENV_PYTHON" -m pip install --upgrade pip 2>&1
+echo "40" > "$PROGRESS_FILE"
+
+# ── Étape 5 : Installer pynintendoparental (critique — arrêt si échec) ────────
 echo "[jeeninswi] Installation de pynintendoparental..."
 "$VENV_PYTHON" -m pip install pynintendoparental 2>&1
 if [ $? -ne 0 ]; then
@@ -56,7 +85,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "60" > "$PROGRESS_FILE"
 
-# ── Étape 4b : Patch compatibilité Python < 3.10 (pynintendoauth) ────────────
+# ── Étape 5b : Patch compatibilité Python < 3.10 (pynintendoauth) ────────────
 PYTHON_MAJOR=$("$VENV_PYTHON" -c "import sys; print(sys.version_info.major)")
 PYTHON_MINOR=$("$VENV_PYTHON" -c "import sys; print(sys.version_info.minor)")
 if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; then
@@ -71,6 +100,7 @@ STRENUM_SHIM = (
     'try:\n'
     '    from enum import StrEnum\n'
     'except ImportError:\n'
+    '    from enum import Enum\n'
     '    class StrEnum(str, Enum):\n'
     '        pass\n'
 )
@@ -95,13 +125,25 @@ def patch_py_file(path):
     # Patch 2 : StrEnum absent de Python < 3.11
     if re.search(r'from enum import.*\bStrEnum\b', content):
         if 'class StrEnum' not in content:
+            # Cas multi-imports : retirer StrEnum de la liste (ex: from enum import Enum, StrEnum)
             content = re.sub(r',\s*StrEnum\b', '', content)
             content = re.sub(r'\bStrEnum\s*,\s*', '', content)
+            # Cas import seul : from enum import StrEnum → remplacer toute la ligne par le shim
+            before = content
             content = re.sub(
-                r'(from enum import[^\n]*\n)',
-                r'\1' + STRENUM_SHIM,
-                content, count=1
+                r'^from enum import StrEnum[^\S\n]*$',
+                STRENUM_SHIM.rstrip('\n'),
+                content,
+                flags=re.MULTILINE
             )
+            # Cas multi-imports restants (seulement si la passe standalone n'a rien changé,
+            # pour éviter de matcher la ligne du shim lui-même et créer du Python invalide)
+            if content == before and re.search(r'from enum import[^\n]*\bStrEnum\b', content):
+                content = re.sub(
+                    r'(from enum import[^\n]*\n)',
+                    r'\1' + STRENUM_SHIM,
+                    content, count=1
+                )
 
     if content != original:
         with open(path, 'w', encoding='utf-8') as f:
@@ -120,7 +162,7 @@ PYEOF
 fi
 echo "65" > "$PROGRESS_FILE"
 
-# ── Étape 5 : Installer aiohttp (HTTP async pour le démon) ───────────────────
+# ── Étape 6 : Installer aiohttp (important — non bloquant) ───────────────────
 echo "[jeeninswi] Installation de aiohttp..."
 "$VENV_PYTHON" -m pip install aiohttp 2>&1
 if [ $? -ne 0 ]; then
@@ -128,7 +170,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "75" > "$PROGRESS_FILE"
 
-# ── Étape 6 : Installer croniter (polling précis selon expression cron) ───────
+# ── Étape 7 : Installer croniter (optionnel — fallback 5 min si absent) ───────
 echo "[jeeninswi] Installation de croniter..."
 "$VENV_PYTHON" -m pip install croniter 2>&1
 if [ $? -ne 0 ]; then

@@ -129,6 +129,12 @@ class jeeninswi extends eqLogic {
         $python_bin  = file_exists($venv_python) ? $venv_python : 'python3';
         log::add(__CLASS__, 'debug', '[deamon_start] Python utilisé : ' . $python_bin);
 
+        // Vérification précoce : le binaire Python doit exister et être exécutable
+        if ($venv_python === $python_bin && (!file_exists($python_bin) || !is_executable($python_bin))) {
+            log::add(__CLASS__, 'error', '[deamon_start] Venv Python introuvable : ' . $python_bin);
+            throw new Exception(__('Le venv Python est introuvable. Relancez "Installer les dépendances" depuis la configuration du plugin.', __FILE__));
+        }
+
         $cmd  = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py');
         $cmd .= ' --tokens '    . escapeshellarg($tokens_json);
         $cmd .= ' --port '      . $socket_port;
@@ -192,10 +198,10 @@ class jeeninswi extends eqLogic {
             log::add(__CLASS__, 'warning', 'Callback sans device_id');
             return;
         }
-        log::add(__CLASS__, 'debug', '[callback] device_id=' . $_data['device_id']
-            . ' | nickname=' . ($_data['nickname'] ?? '?')
-            . ' | playtime_today=' . ($_data['playtime_today'] ?? '?')
-            . ' | time_remaining=' . ($_data['time_remaining'] ?? '?')
+        log::add(__CLASS__, 'debug', '[callback] device_id=' . htmlspecialchars($_data['device_id'], ENT_QUOTES)
+            . ' | nickname=' . htmlspecialchars($_data['nickname'] ?? '?', ENT_QUOTES)
+            . ' | playtime_today=' . intval($_data['playtime_today'] ?? 0)
+            . ' | time_remaining=' . intval($_data['time_remaining'] ?? -1)
             . ' | suspended=' . (isset($_data['suspended']) ? ($_data['suspended'] ? 'true' : 'false') : '?'));
 
         // Trouver l'équipement correspondant (JSON_CONTAINS)
@@ -360,6 +366,13 @@ class jeeninswi extends eqLogic {
         }
         $decoded = json_decode($result, true);
         log::add(__CLASS__, 'debug', '[sendToDaemon] Réponse démon : ' . $result);
+        if (!is_array($decoded)) {
+            log::add(__CLASS__, 'error', '[sendToDaemon] Réponse démon invalide (non-JSON) : ' . substr($result, 0, 200));
+            throw new Exception(__('Réponse du démon invalide — vérifiez que le démon est démarré et actif.', __FILE__));
+        }
+        if (isset($decoded['error'])) {
+            throw new Exception($decoded['error']);
+        }
         return $decoded;
     }
 
@@ -449,7 +462,7 @@ class jeeninswi extends eqLogic {
                     $cmd->setConfiguration('minValue', 0);
                     $cmd->setConfiguration('maxValue', 360);
                 }
-                if (in_array($logicalId, ['bonus_special', 'ajouter_temps', 'soustraire_temps'])) {
+                if (in_array($logicalId, ['ajouter_temps', 'soustraire_temps'])) {
                     $cmd->setConfiguration('minValue', 1);
                     $cmd->setConfiguration('maxValue', 120);
                 }
@@ -486,6 +499,8 @@ class jeeninswi extends eqLogic {
         $replace['#jeu_js#']         = json_encode($this->getCmd('info', 'jeu_en_cours')      ? $this->getCmd('info', 'jeu_en_cours')->execCmd()      : '');
         $replace['#jeu_img_js#']     = json_encode($this->getCmd('info', 'jeu_en_cours_image')? $this->getCmd('info', 'jeu_en_cours_image')->execCmd(): '');
         $replace['#gamechat_actif#'] = intval($this->getCmd('info', 'gamechat_actif') ? $this->getCmd('info', 'gamechat_actif')->execCmd() : 0);
+        // avatar_url non exposé par pynintendoparental — nécessaire pour le widget mobile
+        $replace['#avatar_url_js#']  = json_encode('');
 
         // Historique jeux (JSON — mois précédent)
         $rawHisto  = $this->getCmd('info', 'historique_jeux') ? $this->getCmd('info', 'historique_jeux')->execCmd() : '[]';
@@ -561,13 +576,11 @@ class jeeninswiCmd extends cmd {
                 return $eqLogic->sendToDaemon('suspend', ['suspended' => false]);
 
             case 'ajouter_temps_15':
-                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 15]);
-
             case 'ajouter_temps_30':
-                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 30]);
-
             case 'ajouter_temps_60':
-                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 60]);
+                // Extraire le nombre de minutes depuis le logicalId (ex: 'ajouter_temps_30' → 30)
+                preg_match('/(\d+)$/', $this->getLogicalId(), $_m);
+                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => intval($_m[1] ?? 15)]);
 
             case 'definir_limite':
                 $minutes = intval($_options['slider'] ?? 120);

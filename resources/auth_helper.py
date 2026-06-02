@@ -72,10 +72,25 @@ def generate_auth_data():
     return url, state, verifier
 
 
-def parse_redirect_url(redirect_url: str) -> str:
-    """Extrait session_token_code depuis npf...://auth#session_token_code=xxx&..."""
+def parse_redirect_url(redirect_url: str) -> tuple:
+    """
+    Extrait session_token_code et state depuis npf...://auth#session_token_code=xxx&state=yyy&...
+
+    Returns:
+        (session_token_code, state) — state peut être None si absent
+
+    Raises:
+        ValueError si le format est invalide ou le code manquant
+    """
+    if not redirect_url:
+        raise ValueError('URL de redirection vide')
     parsed = urlparse(redirect_url)
+    # Valider le scheme OAuth Nintendo attendu
+    if not parsed.scheme.startswith('npf'):
+        raise ValueError(f'Scheme OAuth invalide : {parsed.scheme!r} (attendu npf...)')
     fragment = parsed.fragment  # ex: session_token_code=xxx&state=yyy&...
+    if not fragment:
+        raise ValueError('Fragment absent de l\'URL de redirection (attendu #session_token_code=...)')
     params = {}
     for part in fragment.split('&'):
         if '=' in part:
@@ -84,7 +99,8 @@ def parse_redirect_url(redirect_url: str) -> str:
     code = params.get('session_token_code')
     if not code:
         raise ValueError('session_token_code introuvable dans l\'URL de redirection')
-    return code
+    state = params.get('state')  # Retourné pour vérification CSRF
+    return code, state
 
 
 async def exchange_session_token(session_token_code: str, verifier: str) -> str:
@@ -147,11 +163,26 @@ async def action_exchange_token(redirect_url: str, state_file: str):
     try:
         with open(state_file, 'r') as f:
             saved = json.load(f)
-        verifier = saved['verifier']
+        saved_state = saved.get('state', '')
+        verifier    = saved['verifier']
 
-        session_token_code = parse_redirect_url(redirect_url)
-        session_token      = await exchange_session_token(session_token_code, verifier)
-        devices            = await get_devices_from_token(session_token)
+        session_token_code, state_from_url = parse_redirect_url(redirect_url)
+
+        # SECURITY: vérifier le state OAuth pour prévenir les attaques CSRF
+        if not saved_state or saved_state != state_from_url:
+            raise ValueError(
+                'State OAuth invalide — l\'URL de redirection ne correspond pas à la session initiée. '
+                'Relancez depuis l\'étape 1.'
+            )
+
+        # Supprimer le fichier d'état après usage pour éviter la réutilisation
+        try:
+            os.remove(state_file)
+        except OSError:
+            pass
+
+        session_token = await exchange_session_token(session_token_code, verifier)
+        devices       = await get_devices_from_token(session_token)
 
         print(json.dumps({'token': session_token, 'devices': devices}))
 

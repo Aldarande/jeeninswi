@@ -25,6 +25,12 @@ if (!is_array($data)) {
     http_response_code(400);
     die('Bad Request');
 }
+// Validation du device_id : format hexadécimal 16 caractères (format Nintendo)
+if (empty($data['device_id']) || !preg_match('/^[a-f0-9]{16}$/i', $data['device_id'])) {
+    log::add('jeeninswi', 'warning', '[callback.php] device_id invalide ou manquant : ' . htmlspecialchars($data['device_id'] ?? 'null', ENT_QUOTES));
+    http_response_code(400);
+    die(json_encode(['status' => 'error', 'message' => 'device_id invalide']));
+}
 log::add('jeeninswi', 'debug', '[callback.php] device_id=' . ($data['device_id'] ?? '?') . ' | clés=' . implode(', ', array_keys($data)));
 
 try {

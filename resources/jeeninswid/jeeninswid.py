@@ -185,11 +185,9 @@ class JeeNinSwiDaemon:
         """
         Retourne le verrou asyncio pour ce token (créé si inexistant).
         Ce verrou garantit qu'un seul appel API est en cours par compte Nintendo.
+        Utilise setdefault() pour une création atomique (pas de race condition).
         """
-        if token not in self.api_locks:
-            self.log.debug(f'[lock] Création verrou pour token …{token[-6:]}')
-            self.api_locks[token] = asyncio.Lock()
-        return self.api_locks[token]
+        return self.api_locks.setdefault(token, asyncio.Lock())
 
     # ── Connexion à l'API Nintendo ───────────────────────────────────────────
 
@@ -290,6 +288,33 @@ class JeeNinSwiDaemon:
         async with self._get_lock(token):
             await self._do_fetch(token, api)
 
+    async def _call_with_retry(self, coro_factory, max_retries: int = 3, backoff_base: float = 2.0):
+        """
+        Exécute une coroutine avec retry + backoff exponentiel.
+        Utile pour les appels API Nintendo sujets aux erreurs réseau transitoires ou 429.
+
+        Args:
+            coro_factory: callable sans argument retournant une coroutine (lambda: api.update())
+            max_retries:  nombre maximum de tentatives
+            backoff_base: délai initial en secondes (doublé à chaque retry)
+        """
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                return await coro_factory()
+            except (InvalidSessionTokenException, NoDevicesFoundException):
+                raise  # Ces exceptions ne doivent pas être retentées
+            except Exception as e:
+                last_exc = e
+                if attempt < max_retries - 1:
+                    wait = backoff_base * (2 ** attempt)
+                    self.log.warning(
+                        f'[retry] Tentative {attempt + 1}/{max_retries} échouée '
+                        f'({type(e).__name__}) — attente {wait:.0f}s avant retry'
+                    )
+                    await asyncio.sleep(wait)
+        raise last_exc
+
     async def _do_fetch(self, token: str, api):
         """
         Appelle api.update() et envoie les données vers Jeedom via callback.
@@ -303,7 +328,7 @@ class JeeNinSwiDaemon:
         )
         try:
             self.log.debug(f'[_do_fetch] api.update() en cours…')
-            await api.update()
+            await self._call_with_retry(lambda: api.update(), max_retries=3, backoff_base=2.0)
             devices = api.devices or {}
             self.log.debug(f'[_do_fetch] {len(devices)} device(s) retourné(s) par l\'API Nintendo')
 
@@ -1033,8 +1058,18 @@ class JeeNinSwiDaemon:
             self.log.warning(f'[http] Corps JSON invalide : {e}')
             return web.Response(status=400, text='JSON invalide')
 
-        action    = payload.get('action', '?')
-        device_id = payload.get('device_id', '?')
+        # SECURITY: valider l'action contre une liste blanche avant tout log ou traitement
+        _ALLOWED_ACTIONS = {
+            'refresh', 'suspend', 'add_bonus_time', 'set_daily_limit',
+            'set_restriction_mode', 'subtract_time', 'signaler', 'set_gamechat',
+        }
+        action = payload.get('action', '')
+        if not isinstance(action, str) or action not in _ALLOWED_ACTIONS:
+            self.log.warning(f'[http] Action rejetée (non autorisée): {str(action)[:50]!r}')
+            return web.Response(status=400, content_type='application/json',
+                                body=json.dumps({'status': 'error', 'message': 'Action invalide'}).encode())
+
+        device_id = str(payload.get('device_id', '?'))[:64]
         self.log.debug(f'[http] POST /action — action={action} | device={device_id}')
 
         result = await self.handle_action(payload)

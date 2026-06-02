@@ -212,6 +212,7 @@ try {
                 $currentEq->setConfiguration('device_id', $deviceId);
                 $currentEq->setConfiguration('nintendo_token', $token);
                 $currentEq->save();
+                $currentEq->postSave(); // Forcer la création des commandes (postSave non garanti sur update)
                 $firstDeviceDone = true;
                 continue;
             }
@@ -227,6 +228,7 @@ try {
             $eqLogic->setConfiguration('device_id', $deviceId);
             $eqLogic->setConfiguration('nintendo_token', $token);
             $eqLogic->save();
+            $eqLogic->postSave(); // Forcer la création des 19 commandes (info + action)
             $created[] = $name;
         }
 

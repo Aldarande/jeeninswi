@@ -76,8 +76,10 @@ echo "[jeeninswi] Mise à jour de pip dans le venv..."
 echo "40" > "$PROGRESS_FILE"
 
 # ── Étape 5 : Installer pynintendoparental (critique — arrêt si échec) ────────
+# Version épinglée pour éviter les cassures silencieuses sur mise à jour pip.
+# Mettre à jour cette contrainte après validation lors des nouvelles releases.
 echo "[jeeninswi] Installation de pynintendoparental..."
-"$VENV_PYTHON" -m pip install pynintendoparental 2>&1
+"$VENV_PYTHON" -m pip install "pynintendoparental>=0.3.0,<1.0.0" 2>&1
 if [ $? -ne 0 ]; then
     echo "[jeeninswi] ERREUR: Installation de pynintendoparental échouée"
     echo "error" > "$PROGRESS_FILE"
@@ -188,6 +190,13 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "[jeeninswi] Toutes les dépendances sont installées dans le venv."
+
+# ── Sécurisation des permissions du venv ─────────────────────────────────────
+# Les exécutables Python créés par venv peuvent être world-writable selon le umask.
+# On restreint à 755 (rwxr-xr-x) pour éviter toute substitution malveillante.
+echo "[jeeninswi] Sécurisation des permissions du venv..."
+chmod -R o-w "$VENV_DIR" 2>/dev/null && echo "[jeeninswi] Permissions venv OK (o-w appliqué)"
+
 echo "100" > "$PROGRESS_FILE"
 echo "[jeeninswi] Installation terminée avec succès"
 rm -f "$PROGRESS_FILE"

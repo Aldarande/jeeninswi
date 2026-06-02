@@ -147,11 +147,26 @@ async def action_exchange_token(redirect_url: str, state_file: str):
     try:
         with open(state_file, 'r') as f:
             saved = json.load(f)
-        verifier = saved['verifier']
+        saved_state = saved.get('state', '')
+        verifier    = saved['verifier']
 
-        session_token_code = parse_redirect_url(redirect_url)
-        session_token      = await exchange_session_token(session_token_code, verifier)
-        devices            = await get_devices_from_token(session_token)
+        session_token_code, state_from_url = parse_redirect_url(redirect_url)
+
+        # SECURITY: vérifier le state OAuth pour prévenir les attaques CSRF
+        if not saved_state or saved_state != state_from_url:
+            raise ValueError(
+                'State OAuth invalide — l\'URL de redirection ne correspond pas à la session initiée. '
+                'Relancez depuis l\'étape 1.'
+            )
+
+        # Supprimer le fichier d'état AVANT l'échange (invalide le state même en cas d'erreur réseau)
+        try:
+            os.remove(state_file)
+        except OSError:
+            pass
+
+        session_token = await exchange_session_token(session_token_code, verifier)
+        devices       = await get_devices_from_token(session_token)
 
         print(json.dumps({'token': session_token, 'devices': devices}))
 

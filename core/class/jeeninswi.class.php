@@ -517,23 +517,21 @@ class jeeninswi extends eqLogic {
 
         // Dernière synchronisation
         $cmdSync = $this->getCmd('info', 'derniere_synchro');
-        $replace['#derniere_synchro#']  = $cmdSync ? htmlspecialchars($cmdSync->execCmd() ?? '—') : '—';
-        $replace['#cmd_synchro_id#']   = $cmdSync ? $cmdSync->getId() : '0';
+        $replace['#derniere_synchro#'] = $cmdSync ? htmlspecialchars($cmdSync->execCmd() ?? '—') : '—';
 
         // ID de l'équipement — indispensable pour les getElementById() du template JS
         $replace['#eqLogic_id#'] = $this->getId();
 
-        // IDs commandes actions pour les boutons du widget
+        // IDs commandes actions pour les boutons du widget dashboard
         $cmdIds = [
-            'rafraichir'       => 'cmd_refresh_id',
-            'ajouter_temps_15' => 'cmd_add15_id',
-            'ajouter_temps_30' => 'cmd_add30_id',
-            'ajouter_temps_60' => 'cmd_add60_id',
+            'rafraichir'         => 'cmd_refresh_id',
+            'ajouter_temps_15'   => 'cmd_add15_id',
+            'ajouter_temps_30'   => 'cmd_add30_id',
+            'ajouter_temps_60'   => 'cmd_add60_id',
             'bloquer_maintenant' => 'cmd_bloquer_id',
             'lever_restriction'  => 'cmd_lever_id',
             'mode_alerte'        => 'cmd_mode_alerte_id',
-            'mode_blocage'     => 'cmd_mode_blocage_id',
-            'definir_limite'   => 'cmd_limite_id',
+            'mode_blocage'       => 'cmd_mode_blocage_id',
         ];
         foreach ($cmdIds as $logicalId => $key) {
             $cmd = $this->getCmd('action', $logicalId);

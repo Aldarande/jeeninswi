@@ -9,8 +9,10 @@ if ($remote_ip !== '127.0.0.1' && $remote_ip !== '::1') {
     die('Forbidden');
 }
 
-// Vérification par clé API (fonctionne quel que soit le réseau Docker/local)
-$apikey = $_GET['apikey'] ?? $_POST['apikey'] ?? '';
+// (F-003) Clé API lue depuis le header X-Api-Key en priorité,
+// avec fallback sur le paramètre GET pour rétrocompatibilité.
+// Le header est préféré car il n'apparaît pas dans les logs de serveur web.
+$apikey = $_SERVER['HTTP_X_API_KEY'] ?? $_GET['apikey'] ?? $_POST['apikey'] ?? '';
 if (empty($apikey) || $apikey !== jeedom::getApiKey('jeeninswi')) {
     log::add('jeeninswi', 'warning', 'callback.php : clé API invalide (IP=' . ($_SERVER['REMOTE_ADDR'] ?? '?') . ')');
     http_response_code(403);

@@ -126,16 +126,36 @@ class JeeNinSwiDaemon:
         # Initialisée dans run() pour être dans la même boucle asyncio
         self.http_session        = None
 
-        # Pré-remplir token_devices depuis l'argument --tokens (mapping token → [device_ids])
-        try:
-            tokens_map = json.loads(args.tokens) if args.tokens else {}
-            for token, device_ids in tokens_map.items():
-                if token:
-                    self.token_devices[token] = set(device_ids)
-                    self.log.debug(f'[init] Token …{token[-6:]} pré-enregistré avec {len(device_ids)} device(s): {device_ids}')
-            self.log.info(f'[init] {len(self.token_devices)} compte(s) Nintendo pré-chargé(s) au démarrage')
-        except Exception as e:
-            self.log.error(f'[init] Erreur parsing --tokens: {e}')
+        # ── (F-001 + F-003) Charger secrets depuis fichier sécurisé ─────────
+        # Le fichier contient tokens + clé API Jeedom.
+        # Il est créé par PHP (chmod 0600) et supprimé immédiatement ici.
+        # Évite l'exposition des tokens dans `ps aux` / /proc/<pid>/cmdline.
+        self._callback_apikey = ''
+        tokens_map: dict = {}
+
+        if getattr(args, 'secrets_file', '') and os.path.exists(args.secrets_file):
+            try:
+                with open(args.secrets_file, 'r') as _sf:
+                    _secrets = json.load(_sf)
+                tokens_map            = _secrets.get('tokens', {})
+                self._callback_apikey = _secrets.get('apikey', '')
+                os.unlink(args.secrets_file)   # (F-001) Supprimer immédiatement après lecture
+                self.log.debug(f'[init] Fichier secrets lu et supprimé')
+            except Exception as _e:
+                self.log.error(f'[init] Erreur lecture fichier secrets: {_e}')
+        elif getattr(args, 'tokens', '{}') and args.tokens != '{}':
+            # Rétrocompatibilité : --tokens passé directement (déprécié, à supprimer)
+            try:
+                tokens_map = json.loads(args.tokens)
+                self.log.warning('[init] --tokens utilisé (déprécié) — migrer vers --secrets-file')
+            except Exception as _e:
+                self.log.error(f'[init] Erreur parsing --tokens: {_e}')
+
+        for _tok, _dids in tokens_map.items():
+            if _tok:
+                self.token_devices[_tok] = set(_dids)
+                self.log.debug(f'[init] Token …{_tok[-6:]} pré-enregistré avec {len(_dids)} device(s)')
+        self.log.info(f'[init] {len(self.token_devices)} compte(s) Nintendo pré-chargé(s) au démarrage')
 
         # ── Écrire le PID pour que Jeedom puisse surveiller le processus ────
         with open(self.pid_file, 'w') as f:
@@ -871,12 +891,16 @@ class JeeNinSwiDaemon:
     async def _do_post_callback(self, session: aiohttp.ClientSession, data: dict):
         """Exécute le POST HTTP vers callback.php avec gestion des erreurs."""
         device_id = data.get('device_id', '?')
+        # (F-003) Clé API transmise via header X-Api-Key (plus de query string exposée)
+        _headers = {'Content-Type': 'application/json'}
+        if self._callback_apikey:
+            _headers['X-Api-Key'] = self._callback_apikey
         try:
             async with session.post(
                 self.callback_url,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=5),
-                headers={'Content-Type': 'application/json'},
+                headers=_headers,
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
@@ -1069,16 +1093,15 @@ class JeeNinSwiDaemon:
                 'Démon JeeNinSwi démarré — en attente des actions Jeedom sur le port %d',
                 self.port
             )
-            # SECURITY: masquer la clé API dans les logs
-            _safe_cb = (self.callback_url.split('apikey=')[0] + 'apikey=****') \
-                       if 'apikey=' in self.callback_url else self.callback_url
+            # (F-003) callback_url ne contient plus de ?apikey= — clé transmise via header
             self.log.debug(
                 f'[run] PID={os.getpid()} | poll_interval={self.poll_interval}s '
-                f'| poll_cron={self.poll_cron} | callback={_safe_cb}'
+                f'| poll_cron={self.poll_cron} | callback={self.callback_url}'
+                f' | apikey_header={"oui" if self._callback_apikey else "non"}'
             )
 
             # ── Connexion initiale de tous les comptes pré-chargés ────────────
-            # Les tokens sont passés au démarrage via --tokens (PHP deamon_start).
+            # Les tokens sont chargés depuis le fichier secrets au démarrage.
             # Sans ça, le démon attendrait qu'une action soit envoyée pour se connecter.
             if self.token_devices:
                 self.log.info(f'[run] Connexion initiale de {len(self.token_devices)} compte(s) Nintendo...')
@@ -1123,8 +1146,14 @@ def main():
         description='JeeNinSwi Daemon — Nintendo Switch Parental Controls pour Jeedom'
     )
     parser.add_argument(
+        '--secrets-file', default='',
+        dest='secrets_file',
+        help='(F-001) Fichier JSON sécurisé contenant tokens + apikey. '
+             'Supprimé immédiatement après lecture. Remplace --tokens.'
+    )
+    parser.add_argument(
         '--tokens', default='{}',
-        help='JSON object {token: [device_ids]} des comptes Nintendo à superviser au démarrage'
+        help='[Déprécié] JSON {token: [device_ids]}. Utiliser --secrets-file.'
     )
     parser.add_argument(
         '--port', type=int, default=55147,

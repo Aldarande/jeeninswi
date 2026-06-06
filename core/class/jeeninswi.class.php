@@ -109,58 +109,85 @@ class jeeninswi extends eqLogic {
                 $poll_cron = $eq->getConfiguration('poll_cron', self::POLL_CRON) ?: $poll_cron;
             }
         }
-        $tokens_json = json_encode($token_devices_map);
         log::add(__CLASS__, 'debug', '[deamon_start] ' . count($token_devices_map) . ' compte(s) Nintendo — poll_cron=' . $poll_cron);
 
-        $pid_file     = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
-        $log_file     = log::getPathToLog(__CLASS__);
-        $socket_port  = self::getPort();
-        $api_key      = jeedom::getApiKey(__CLASS__);
-        $jeedom_port  = config::byKey('port', 'network', 80);
-        $jeedom_comp  = config::byKey('urlcomplement', 'network', '');
-        $callback_url = 'http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=' . urlencode($api_key);
+        $pid_file    = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
+        $log_file    = log::getPathToLog(__CLASS__);
+        $socket_port = self::getPort();
+        $api_key     = jeedom::getApiKey(__CLASS__);
+        $jeedom_port = config::byKey('port', 'network', 80);
+        $jeedom_comp = config::byKey('urlcomplement', 'network', '');
 
-        log::add(__CLASS__, 'debug', '[deamon_start] Port=' . $socket_port . ', PID file=' . $pid_file);
-        // SECURITY: ne pas loguer la clé API en clair
-        log::add(__CLASS__, 'debug', '[deamon_start] Callback URL=http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=****');
+        // (F-001) Écrire tokens + clé API dans un fichier secrets (chmod 0600).
+        // Évite l'exposition via `ps aux` / /proc/<pid>/cmdline.
+        $secrets_file = jeedom::getTmpFolder(__CLASS__) . '/daemon.secrets.json';
+        $secrets_data = json_encode(
+            ['tokens' => $token_devices_map, 'apikey' => $api_key],
+            JSON_UNESCAPED_UNICODE
+        );
+        if (@file_put_contents($secrets_file, $secrets_data) === false) {
+            throw new Exception(__('Impossible d\'écrire le fichier secrets du démon. Vérifiez les permissions sur ' . jeedom::getTmpFolder(__CLASS__), __FILE__));
+        }
+        @chmod($secrets_file, 0600);
+
+        // (F-003) URL callback sans ?apikey= en query string — clé transmise via header X-Api-Key
+        $callback_url = 'http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php';
+
+        log::add(__CLASS__, 'debug', '[deamon_start] Port=' . $socket_port . ' | secrets=' . $secrets_file . ' | callback=' . $callback_url);
 
         // Utiliser le Python du venv si disponible, sinon python3 système (fallback)
         $venv_python = dirname(__FILE__) . '/../../resources/venv/bin/python3';
         $python_bin  = file_exists($venv_python) ? $venv_python : 'python3';
         log::add(__CLASS__, 'debug', '[deamon_start] Python utilisé : ' . $python_bin);
 
+        // Vérification précoce : le binaire Python doit exister et être exécutable
+        if ($venv_python === $python_bin && (!file_exists($python_bin) || !is_executable($python_bin))) {
+            @unlink($secrets_file);
+            log::add(__CLASS__, 'error', '[deamon_start] Venv Python introuvable : ' . $python_bin);
+            throw new Exception(__('Le venv Python est introuvable. Relancez "Installer les dépendances".', __FILE__));
+        }
+
         $cmd  = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py');
-        $cmd .= ' --tokens '    . escapeshellarg($tokens_json);
-        $cmd .= ' --port '      . $socket_port;
-        $cmd .= ' --callback '  . escapeshellarg($callback_url);
-        $cmd .= ' --poll-cron ' . escapeshellarg($poll_cron);
-        $cmd .= ' --pid-file '  . escapeshellarg($pid_file);
-        $cmd .= ' --log-file '  . escapeshellarg($log_file);
+        $cmd .= ' --secrets-file ' . escapeshellarg($secrets_file); // (F-001) remplace --tokens
+        $cmd .= ' --port '         . $socket_port;
+        $cmd .= ' --callback '     . escapeshellarg($callback_url);
+        $cmd .= ' --poll-cron '    . escapeshellarg($poll_cron);
+        $cmd .= ' --pid-file '     . escapeshellarg($pid_file);
+        $cmd .= ' --log-file '     . escapeshellarg($log_file);
         $cmd .= $_debug ? ' --debug' : '';
         $cmd .= ' > /dev/null 2>&1 &';
 
-        // SECURITY: construire une version masquée pour les logs (tokens Nintendo et clé API retirés)
+        // Log sans secrets (chemin du fichier visible, contenu protégé)
         $cmd_log = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py')
-                 . ' --tokens [MASKED]'
-                 . ' --port '      . $socket_port
-                 . ' --callback [MASKED]'
-                 . ' --poll-cron ' . escapeshellarg($poll_cron)
-                 . ' --pid-file '  . escapeshellarg($pid_file)
-                 . ' --log-file '  . escapeshellarg($log_file)
+                 . ' --secrets-file ' . escapeshellarg($secrets_file)
+                 . ' --port '         . $socket_port
+                 . ' --callback '     . escapeshellarg($callback_url)
+                 . ' --poll-cron '    . escapeshellarg($poll_cron)
+                 . ' --pid-file '     . escapeshellarg($pid_file)
+                 . ' --log-file '     . escapeshellarg($log_file)
                  . ($_debug ? ' --debug' : '');
         log::add(__CLASS__, 'info', 'Démarrage démon : ' . $cmd_log);
-        shell_exec($cmd);
 
-        $timeout = 60;
-        for ($i = 0; $i < $timeout; $i++) {
-            sleep(1);
-            log::add(__CLASS__, 'debug', '[deamon_start] Attente démon (' . ($i + 1) . '/' . $timeout . 's)...');
-            if (self::deamon_info()['state'] === 'ok') {
-                log::add(__CLASS__, 'debug', '[deamon_start] Démon actif après ' . ($i + 1) . 's');
-                return true;
+        // (F-001) finally garantit la suppression du fichier secrets même en cas d'exception
+        try {
+            shell_exec($cmd);
+            $timeout = 60;
+            for ($i = 0; $i < $timeout; $i++) {
+                sleep(1);
+                log::add(__CLASS__, 'debug', '[deamon_start] Attente démon (' . ($i + 1) . '/' . $timeout . 's)...');
+                if (self::deamon_info()['state'] === 'ok') {
+                    log::add(__CLASS__, 'debug', '[deamon_start] Démon actif après ' . ($i + 1) . 's');
+                    return true;
+                }
+            }
+            throw new Exception(__('Impossible de démarrer le démon. Vérifiez les logs.', __FILE__));
+        } finally {
+            // Le démon a normalement lu et supprimé le fichier ; on nettoie si ce n'est pas le cas
+            if (file_exists($secrets_file)) {
+                @unlink($secrets_file);
+                log::add(__CLASS__, 'debug', '[deamon_start] Fichier secrets supprimé (cleanup finally)');
             }
         }
-        throw new Exception(__('Impossible de démarrer le démon. Vérifiez les logs.', __FILE__));
     }
 
     public static function deamon_stop() {
@@ -359,7 +386,18 @@ class jeeninswi extends eqLogic {
             throw new Exception(__('Impossible de contacter le démon. Vérifiez qu\'il est démarré.', __FILE__));
         }
         $decoded = json_decode($result, true);
-        log::add(__CLASS__, 'debug', '[sendToDaemon] Réponse démon : ' . $result);
+        // (F-004) Logger uniquement les clés + status — jamais les valeurs brutes (données Nintendo)
+        $safe_log = is_array($decoded)
+            ? 'keys=[' . implode(',', array_keys($decoded)) . '] status=' . ($decoded['status'] ?? '?')
+            : 'réponse non-JSON';
+        log::add(__CLASS__, 'debug', '[sendToDaemon] Réponse démon : ' . $safe_log);
+        if (!is_array($decoded)) {
+            log::add(__CLASS__, 'error', '[sendToDaemon] Réponse invalide (non-JSON) : ' . substr($result, 0, 200));
+            throw new Exception(__('Réponse du démon invalide — vérifiez que le démon est démarré et actif.', __FILE__));
+        }
+        if (isset($decoded['error'])) {
+            throw new Exception($decoded['error']);
+        }
         return $decoded;
     }
 

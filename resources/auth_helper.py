@@ -104,7 +104,8 @@ async def exchange_session_token(session_token_code: str, verifier: str) -> str:
             data = await resp.json(content_type=None)
             token = data.get('session_token')
             if not token:
-                raise Exception(f'session_token absent de la réponse : {data}')
+                # (F-005) Ne pas exposer le payload complet Nintendo dans le message d'erreur
+                raise Exception(f'session_token absent dans la réponse (clés reçues : {list(data.keys())})')
             return token
 
 

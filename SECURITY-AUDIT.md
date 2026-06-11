@@ -5,7 +5,22 @@
 **Auditeur :** Claude Security Agent (claude-sonnet-4-6)
 **Commit analysé :** 75ccf49 fix: validation fonctionnelle, audit sécurité et installation
 **Fichiers analysés :** 9 (jeeninswi.ajax.php, jeeninswi.class.php, callback.php, configuration.php, install.php, auth_helper.py, jeeninswid.py, install_dep.sh, jeeninswi.js, jeeninswi.php, token_setup.php)
-**Score de sécurité :** 78/100
+**Score de sécurité :** 78/100 (au moment de l'audit — voir statut des corrections ci-dessous)
+
+---
+
+## Statut des corrections (mis à jour 2026-06-11)
+
+| Finding | Sévérité | Statut | Commit / Note |
+|---------|----------|--------|---------------|
+| F-001 | HIGH | ✅ **Corrigé** | `70516d4` — secrets-file chmod 0600, supprimé après lecture ; fallback `--tokens` retiré du démon et de l'argparse |
+| F-002 | HIGH | ✅ **Corrigé** | `70516d4` — action fusionnée `exchangeAndSaveToken`, token jamais renvoyé au JS ; `exchangeToken` hors whitelist + HTTP 410 |
+| F-003 | MEDIUM | ✅ **Corrigé** | `70516d4` — header `X-Api-Key` côté démon, lecture `HTTP_X_API_KEY` prioritaire dans callback.php (fallback GET conservé une version) |
+| F-004 | MEDIUM | ✅ **Corrigé** | `70516d4` — `sendToDaemon()` ne logue que les clés + status |
+| F-005 | MEDIUM | ✅ **Corrigé** | `70516d4` — message d'erreur limité aux clés de la réponse |
+| F-006 | LOW | ✅ **Vérifié non applicable** | Toutes les utilisations de `$PROGRESS_FILE` étaient déjà quotées |
+| F-007 | LOW | 📋 **Accepté/documenté** | Tokens en clé de dict en mémoire — risque accepté (accès mémoire = root requis) |
+| setuptools | LOW | ✅ **Corrigé** | `install_dep.sh` force `setuptools>=70` (CVE-2024-6345) |
 
 ---
 

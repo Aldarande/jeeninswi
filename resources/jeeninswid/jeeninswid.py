@@ -143,13 +143,6 @@ class JeeNinSwiDaemon:
                 self.log.debug(f'[init] Fichier secrets lu et supprimé')
             except Exception as _e:
                 self.log.error(f'[init] Erreur lecture fichier secrets: {_e}')
-        elif getattr(args, 'tokens', '{}') and args.tokens != '{}':
-            # Rétrocompatibilité : --tokens passé directement (déprécié, à supprimer)
-            try:
-                tokens_map = json.loads(args.tokens)
-                self.log.warning('[init] --tokens utilisé (déprécié) — migrer vers --secrets-file')
-            except Exception as _e:
-                self.log.error(f'[init] Erreur parsing --tokens: {_e}')
 
         for _tok, _dids in tokens_map.items():
             if _tok:
@@ -1149,11 +1142,7 @@ def main():
         '--secrets-file', default='',
         dest='secrets_file',
         help='(F-001) Fichier JSON sécurisé contenant tokens + apikey. '
-             'Supprimé immédiatement après lecture. Remplace --tokens.'
-    )
-    parser.add_argument(
-        '--tokens', default='{}',
-        help='[Déprécié] JSON {token: [device_ids]}. Utiliser --secrets-file.'
+             'Supprimé immédiatement après lecture.'
     )
     parser.add_argument(
         '--port', type=int, default=55147,
@@ -1161,7 +1150,7 @@ def main():
     )
     parser.add_argument(
         '--callback', required=True,
-        help='URL callback Jeedom (core/php/callback.php?apikey=...)'
+        help='URL callback Jeedom (core/php/callback.php — clé API via header X-Api-Key)'
     )
     parser.add_argument(
         '--poll-cron', default='*/5 * * * *',

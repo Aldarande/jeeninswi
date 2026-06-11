@@ -232,8 +232,9 @@ try {
     // Conservée dans le code mais RETIRÉE de la whitelist ajax::init() (F-002).
     // Utiliser exchangeAndSaveToken à la place.
     if (init('action') == 'exchangeToken') {
-        log::add('jeeninswi', 'warning', '[ajax] exchangeToken — action dépréciée appelée directement');
-        throw new Exception(__('Action dépréciée. Utilisez exchangeAndSaveToken.', __FILE__));
+        log::add('jeeninswi', 'warning', '[ajax] exchangeToken — action supprimée (410) appelée directement');
+        http_response_code(410); // 410 Gone : action définitivement retirée (F-002)
+        throw new Exception(__('410 - Action supprimée : le token Nintendo ne transite plus par le navigateur. Utilisez exchangeAndSaveToken.', __FILE__));
     }
 
     // ── Assistant token — Sauvegarde seule (compatibilité) ───────────────────

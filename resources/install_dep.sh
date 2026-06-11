@@ -70,9 +70,11 @@ fi
 echo "[jeeninswi] venv créé avec succès ($(\"$VENV_PYTHON\" --version 2>&1))."
 echo "30" > "$PROGRESS_FILE"
 
-# ── Étape 4 : Mettre à jour pip dans le venv ─────────────────────────────────
-echo "[jeeninswi] Mise à jour de pip dans le venv..."
-"$VENV_PYTHON" -m pip install --upgrade pip 2>&1
+# ── Étape 4 : Mettre à jour pip + setuptools dans le venv ────────────────────
+# setuptools >= 70 requis : versions antérieures affectées par CVE-2024-6345
+# (RCE via URL VCS — risque faible ici mais correctif trivial)
+echo "[jeeninswi] Mise à jour de pip et setuptools dans le venv..."
+"$VENV_PYTHON" -m pip install --upgrade pip "setuptools>=70" 2>&1
 echo "40" > "$PROGRESS_FILE"
 
 # ── Étape 5 : Installer pynintendoparental (critique — arrêt si échec) ────────

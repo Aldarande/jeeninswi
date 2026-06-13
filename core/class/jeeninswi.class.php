@@ -274,8 +274,17 @@ class jeeninswi extends eqLogic {
             $this->checkAndUpdateCmd('temps_semaine', intval($_data['playtime_month']));
         }
         if (isset($_data['time_remaining'])) {
-            log::add(__CLASS__, 'debug', '[updateFromData] temps_restant → ' . intval($_data['time_remaining']) . ' min');
-            $this->checkAndUpdateCmd('temps_restant', intval($_data['time_remaining']));
+            $remaining = intval($_data['time_remaining']);
+            log::add(__CLASS__, 'debug', '[updateFromData] temps_restant → ' . $remaining . ' min');
+            $this->checkAndUpdateCmd('temps_restant', $remaining);
+
+            // Seuil d'alerte : 1 si le temps restant passe sous le seuil configuré.
+            // remaining = -1 signifie "pas de quota" → jamais d'alerte.
+            // threshold = 0 désactive la fonctionnalité.
+            $threshold = intval($this->getConfiguration('alert_threshold_minutes', 15));
+            $alert = ($threshold > 0 && $remaining >= 0 && $remaining <= $threshold) ? 1 : 0;
+            log::add(__CLASS__, 'debug', '[updateFromData] seuil_alerte_atteint → ' . $alert . ' (seuil=' . $threshold . ' min)');
+            $this->checkAndUpdateCmd('seuil_alerte_atteint', $alert);
         }
         if (isset($_data['daily_limit'])) {
             log::add(__CLASS__, 'debug', '[updateFromData] temps_limite → ' . intval($_data['daily_limit']) . ' min');
@@ -429,7 +438,12 @@ class jeeninswi extends eqLogic {
             ['temps_depasse',     'Temps dépassé (jour)','numeric', 'time'],
             ['nb_jours_joue',     'Jours joués (mois)',  'numeric', 'time'],
             ['temps_moyen',       'Temps moyen (mois)',  'numeric', 'time'],
+            ['seuil_alerte_atteint', 'Seuil d\'alerte atteint', 'binary', 'bell'],
         ];
+
+        // Commandes numériques historisées par défaut À LA CRÉATION uniquement
+        // (idempotent : on ne touche jamais au réglage d'une commande existante)
+        $historized_cmds = ['temps_jour'];
 
         $order = 1;
         foreach ($info_cmds as $cmd_def) {
@@ -445,6 +459,9 @@ class jeeninswi extends eqLogic {
                 $cmd->setName($name);
                 $cmd->setIsVisible(1);
                 $cmd->setOrder($order);
+                if (in_array($logicalId, $historized_cmds, true)) {
+                    $cmd->setIsHistorized(1);
+                }
                 $cmd->save();
             } else {
                 log::add(__CLASS__, 'debug', '[postSave] Commande INFO existante : ' . $logicalId);

@@ -112,6 +112,7 @@ Chaque console Nintendo apparaît comme un **équipement Jeedom** indépendant.
 | Activé | Active/désactive la supervision | Oui |
 | Visible | Affiche/masque le widget sur le dashboard | Oui |
 | Intervalle de polling | Fréquence de mise à jour (secondes) | 300 (5 min) |
+| Seuil d'alerte (min) | La commande « Seuil d'alerte atteint » passe à 1 quand le temps restant ≤ cette valeur. 0 = désactivé | 15 |
 
 > **Note** : Le nom de l'équipement dans Jeedom est indépendant du profil Nintendo.  
 > Renommer un équipement dans Jeedom ne modifie pas l'app Nintendo, et vice versa.
@@ -180,6 +181,7 @@ L'icône tourne pendant la requête.
 | Mode restriction | `mode_restriction` | 0 = blocage forcé, 1 = alerte |
 | Historique jeux | `historique_jeux` | JSON des jeux du jour |
 | Timeline JSON | `timeline_json` | JSON pour le graphique 7 jours |
+| Seuil d'alerte atteint | `seuil_alerte_atteint` | 1 quand le temps restant ≤ seuil configuré (voir Options de configuration) |
 
 ### Commandes ACTION
 
@@ -217,6 +219,21 @@ Déclencheur : [Switch Thiebault][temps_jour] change
 Condition   : [Switch Thiebault][temps_jour] > 120
 Action      : Message push "Thiebault a joué plus de 2h aujourd'hui"
 ```
+
+### Prévenir quand il reste peu de temps (seuil d'alerte)
+
+La commande binaire **Seuil d'alerte atteint** passe à 1 dès que le temps restant
+passe sous le seuil configuré dans l'équipement (« Seuil d'alerte (min) », défaut 15).
+Idéal pour prévenir l'enfant ou le parent avant la coupure :
+
+```
+Déclencheur : [Switch Thiebault][seuil_alerte_atteint] change
+Condition   : [Switch Thiebault][seuil_alerte_atteint] == 1
+Action      : Message WhatsApp/push "Plus que 15 min de jeu pour Thiebault !"
+```
+
+> **Astuce** : le temps de jeu quotidien (`temps_jour`) est historisé automatiquement
+> pour les nouveaux équipements — vous pouvez tracer la courbe dans **Analyse → Historique**.
 
 ### Bonus le vendredi soir
 

@@ -268,3 +268,46 @@
 .nsw .nsw-sync { margin-top: 6px; text-align: center; font-size: 7px; color: #475569; font-weight: 600; letter-spacing: .3px; opacity: .75; }
 
 @keyframes nsw-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Section Gestion : cartes à grandes icônes ──────────────── */
+.nsw-manage-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 10px 0 20px;
+}
+.nsw-manage-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    padding: 18px 10px;
+    border-radius: var(--ninswi-radius);
+    background: rgba(127, 127, 127, .08);
+    border: 1px solid rgba(127, 127, 127, .18);
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.nsw-manage-card:hover {
+    transform: translateY(-3px);
+    background: rgba(228, 0, 15, .08);
+    border-color: var(--ninswi-red);
+}
+.nsw-manage-ico {
+    font-size: 46px;
+    line-height: 1;
+    color: #8a8a8a;
+    transition: color .12s ease;
+}
+.nsw-manage-card:hover .nsw-manage-ico { color: var(--ninswi-red); }
+.nsw-manage-ico.nsw-ico-add  { color: #5cb85c; }
+.nsw-manage-card:hover .nsw-ico-add { color: #4cae4c; }
+.nsw-manage-ico.nsw-ico-don  { color: #d99a2b; }
+.nsw-manage-card:hover .nsw-ico-don { color: #d99a2b; }
+.nsw-manage-lbl {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: inherit;
+    text-align: center;
+}

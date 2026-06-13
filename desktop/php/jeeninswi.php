@@ -19,21 +19,18 @@ sendVarToJS('eqType', $plugin->getId());
 	<div class="col-xs-12 eqLogicThumbnailDisplay">
 		<legend><i class="fas fa-cog"></i> {{Gestion}}</legend>
 
-		<div class="eqLogicThumbnailContainer">
-			<div class="cursor eqLogicAction logoPrimary" data-action="add">
-				<i class="fas fa-plus-circle"></i>
-				<br>
-				<span>{{Ajouter}}</span>
+		<div class="nsw-manage-grid">
+			<div class="nsw-manage-card cursor eqLogicAction" data-action="add">
+				<i class="fas fa-plus-circle nsw-manage-ico nsw-ico-add"></i>
+				<span class="nsw-manage-lbl">{{Ajouter}}</span>
 			</div>
-			<div class="cursor eqLogicAction logoSecondary" data-action="gotoPluginConf">
-				<i class="fas fa-wrench"></i>
-				<br>
-				<span>{{Configuration}}</span>
+			<div class="nsw-manage-card cursor eqLogicAction" data-action="gotoPluginConf">
+				<i class="fas fa-wrench nsw-manage-ico"></i>
+				<span class="nsw-manage-lbl">{{Configuration}}</span>
 			</div>
-			<div class="cursor logoSecondary" id="bt_donJeeNinSwi" title="{{Faire un don}}">
-				<i class="fas fa-mug-hot"></i>
-				<br>
-				<span>{{Don}}</span>
+			<div class="nsw-manage-card cursor" id="bt_donJeeNinSwi" title="{{Faire un don}}">
+				<i class="fas fa-mug-hot nsw-manage-ico nsw-ico-don"></i>
+				<span class="nsw-manage-lbl">{{Don}}</span>
 			</div>
 		</div>
 
@@ -240,6 +237,18 @@ sendVarToJS('eqType', $plugin->getId());
 									<input type="text" class="eqLogicAttr form-control"
 										data-l1key="configuration" data-l2key="poll_cron"
 										placeholder="*/5 * * * *">
+								</div>
+							</div>
+
+							<div class="form-group">
+								<label class="col-sm-5 control-label">
+									{{Seuil d'alerte (min)}}
+									<i class="fas fa-question-circle tooltips" title="{{La commande 'Seuil d'alerte atteint' passe a 1 quand le temps restant est inferieur ou egal a cette valeur. 0 = desactive. Defaut : 15 minutes.}}"></i>
+								</label>
+								<div class="col-sm-6">
+									<input type="number" min="0" max="360" class="eqLogicAttr form-control"
+										data-l1key="configuration" data-l2key="alert_threshold_minutes"
+										placeholder="15">
 								</div>
 							</div>
 

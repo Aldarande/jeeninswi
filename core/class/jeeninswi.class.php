@@ -111,6 +111,9 @@ class jeeninswi extends eqLogic {
         }
         log::add(__CLASS__, 'debug', '[deamon_start] ' . count($token_devices_map) . ' compte(s) Nintendo — poll_cron=' . $poll_cron);
 
+        // (P4) Plage nocturne : polling ralenti pendant cette tranche horaire (vide = désactivé)
+        $night_range = trim(config::byKey('night_range', __CLASS__, '23-7'));
+
         $pid_file    = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
         $log_file    = log::getPathToLog(__CLASS__);
         $socket_port = self::getPort();
@@ -154,6 +157,9 @@ class jeeninswi extends eqLogic {
         $cmd .= ' --poll-cron '    . escapeshellarg($poll_cron);
         $cmd .= ' --pid-file '     . escapeshellarg($pid_file);
         $cmd .= ' --log-file '     . escapeshellarg($log_file);
+        if ($night_range !== '') {
+            $cmd .= ' --night-range ' . escapeshellarg($night_range); // (P4) non sensible
+        }
         $cmd .= $_debug ? ' --debug' : '';
         $cmd .= ' > /dev/null 2>&1 &';
 
@@ -165,6 +171,7 @@ class jeeninswi extends eqLogic {
                  . ' --poll-cron '    . escapeshellarg($poll_cron)
                  . ' --pid-file '     . escapeshellarg($pid_file)
                  . ' --log-file '     . escapeshellarg($log_file)
+                 . ($night_range !== '' ? ' --night-range ' . escapeshellarg($night_range) : '')
                  . ($_debug ? ' --debug' : '');
         log::add(__CLASS__, 'info', 'Démarrage démon : ' . $cmd_log);
 
@@ -206,6 +213,92 @@ class jeeninswi extends eqLogic {
         }
         log::add(__CLASS__, 'debug', '[deamon_stop] Libération du port ' . self::getPort());
         system::fuserk(self::getPort());
+    }
+
+    /*
+     * ==========================================
+     * BONUS DE TEMPS PROGRAMMÉ (P3)
+     * ==========================================
+     */
+
+    /**
+     * Enregistre un bonus de temps à appliquer à une date future.
+     * Stocké dans la config plugin 'scheduled_bonuses' ; appliqué par cronDaily().
+     *
+     * @param string $deviceId Console cible
+     * @param int    $minutes  Minutes de bonus
+     * @param string $date     Date d'application au format YYYY-MM-DD
+     * @return array  {status, message}
+     */
+    public static function scheduleBonus($deviceId, $minutes, $date) {
+        $minutes = intval($minutes);
+        // Validation stricte de la date (format + date réelle)
+        $d = DateTime::createFromFormat('Y-m-d', $date);
+        if (!$d || $d->format('Y-m-d') !== $date) {
+            throw new Exception(__('Date de bonus invalide (format attendu : AAAA-MM-JJ)', __FILE__));
+        }
+        if (empty($deviceId)) {
+            throw new Exception(__('device_id manquant pour le bonus programmé', __FILE__));
+        }
+        if ($minutes < 1 || $minutes > 480) {
+            throw new Exception(__('Bonus hors limite (1-480 min)', __FILE__));
+        }
+
+        $list = json_decode(config::byKey('scheduled_bonuses', __CLASS__, '[]'), true);
+        if (!is_array($list)) {
+            $list = [];
+        }
+        $list[] = ['device_id' => $deviceId, 'minutes' => $minutes, 'date' => $date];
+        config::save('scheduled_bonuses', json_encode($list), __CLASS__);
+        log::add(__CLASS__, 'info', '[scheduleBonus] Bonus de ' . $minutes . ' min programmé le ' . $date . ' pour device ' . $deviceId);
+        return ['status' => 'ok', 'message' => 'Bonus programmé le ' . $date];
+    }
+
+    /**
+     * Cron quotidien Jeedom : applique les bonus programmés dont la date est
+     * aujourd'hui (ou passée), puis les retire de la liste.
+     * Réutilise l'action add_bonus_time du démon (pas de modification démon).
+     */
+    public static function cronDaily() {
+        $list = json_decode(config::byKey('scheduled_bonuses', __CLASS__, '[]'), true);
+        if (!is_array($list) || empty($list)) {
+            return;
+        }
+        $today     = date('Y-m-d');
+        $remaining = [];
+        $applied   = 0;
+
+        foreach ($list as $bonus) {
+            $date     = $bonus['date'] ?? '';
+            $deviceId = $bonus['device_id'] ?? '';
+            $minutes  = intval($bonus['minutes'] ?? 0);
+
+            // On garde les bonus futurs ; on applique ceux d'aujourd'hui ou en retard
+            if ($date === '' || $date > $today) {
+                $remaining[] = $bonus;
+                continue;
+            }
+
+            $eqLogics = eqLogic::byTypeAndSearchConfiguration(__CLASS__, ['device_id' => $deviceId]);
+            if (empty($eqLogics)) {
+                log::add(__CLASS__, 'warning', '[cronDaily] Bonus ignoré — aucun équipement pour device ' . $deviceId);
+                continue; // équipement supprimé → on abandonne ce bonus
+            }
+            foreach ($eqLogics as $eqLogic) {
+                try {
+                    $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => $minutes]);
+                    $applied++;
+                    log::add(__CLASS__, 'info', '[cronDaily] Bonus de ' . $minutes . ' min appliqué (device ' . $deviceId . ', programmé le ' . $date . ')');
+                } catch (Exception $e) {
+                    // Échec (démon arrêté ?) → on reporte le bonus au prochain passage
+                    log::add(__CLASS__, 'warning', '[cronDaily] Échec application bonus device ' . $deviceId . ' : ' . $e->getMessage() . ' — reporté');
+                    $remaining[] = $bonus;
+                }
+            }
+        }
+
+        config::save('scheduled_bonuses', json_encode(array_values($remaining)), __CLASS__);
+        log::add(__CLASS__, 'debug', '[cronDaily] ' . $applied . ' bonus appliqué(s), ' . count($remaining) . ' en attente');
     }
 
     /*
@@ -629,6 +722,12 @@ class jeeninswiCmd extends cmd {
             case 'ajouter_temps':
             case 'bonus_special':
                 $minutes = intval($_options['slider'] ?? 30);
+                // Bonus programmé : si une date (YYYY-MM-DD) est fournie dans les options,
+                // on n'applique pas tout de suite — on enregistre pour le cron quotidien.
+                $date = trim($_options['date'] ?? '');
+                if ($date !== '') {
+                    return jeeninswi::scheduleBonus($eqLogic->getConfiguration('device_id'), $minutes, $date);
+                }
                 return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => $minutes]);
 
             case 'soustraire_temps':

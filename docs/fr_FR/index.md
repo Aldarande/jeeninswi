@@ -244,6 +244,33 @@ Action      : Commande [Switch Thiebault][Ajouter 60 min]
               Message push "Bonus d'1h accordé ce vendredi !"
 ```
 
+### Bonus de temps programmé à une date précise
+
+La commande **Ajouter du temps (min)** accepte une option `date` (format `AAAA-MM-JJ`).
+Si elle est fournie, le bonus n'est **pas** appliqué tout de suite : il est enregistré
+et appliqué automatiquement à la date voulue par le cron quotidien du plugin.
+
+Dans un scénario, utilisez l'action « Exécuter une commande » avec options :
+
+```
+Commande : [Switch Thiebault][Ajouter du temps (min)]
+Options  : slider = 60
+           date   = 2026-12-25
+```
+
+→ 60 minutes de bonus seront ajoutées le 25 décembre 2026.
+Sans option `date`, le bonus est appliqué immédiatement (comportement habituel).
+
+---
+
+## Polling adaptatif nuit/jour
+
+Dans **Configuration du plugin**, le champ **Plage nocturne** (ex : `23-7`, défaut)
+définit une tranche horaire pendant laquelle le démon interroge l'API Nintendo
+**6 fois moins souvent** — les consoles dorment, inutile de poller toutes les 5 min.
+Laissez le champ vide pour désactiver et garder un polling constant.
+Redémarrez le démon après modification.
+
 ---
 
 ## Dépannage

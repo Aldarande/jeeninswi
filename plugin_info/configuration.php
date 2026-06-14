@@ -18,5 +18,15 @@ if (!isConnect()) {
                        placeholder="55147" min="1024" max="65535"/>
             </div>
         </div>
+        <div class="form-group">
+            <label class="col-md-4 control-label">
+                {{Plage nocturne}}
+                <i class="fas fa-question-circle tooltips" title="{{Plage horaire HHdebut-HHfin (ex : 23-7) pendant laquelle le polling Nintendo est ralenti (x6) — les consoles dorment. Laisser vide pour désactiver. Redémarrez le démon après changement.}}"></i>
+            </label>
+            <div class="col-md-2">
+                <input type="text" class="configKey form-control" data-l1key="night_range"
+                       placeholder="23-7"/>
+            </div>
+        </div>
     </fieldset>
 </form>

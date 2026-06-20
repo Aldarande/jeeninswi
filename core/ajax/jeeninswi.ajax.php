@@ -5,18 +5,103 @@
  * L'authentification est gérée par ajax::init() qui vérifie le token de session Jeedom.
  *
  * Actions disponibles :
- *   - getDeviceStatus    : valeurs courantes des commandes d'un équipement
- *   - sendAction         : exécution d'une commande action sur un équipement
- *   - getAuthUrl         : génère l'URL OAuth Nintendo (étape 1 de l'assistant token)
- *   - exchangeToken      : échange l'URL de redirection contre un token + liste consoles
-//  *   - saveTokenAndDevices: sauvegarde le token et crée/met à jour les équipements
+ *   - getDeviceStatus       : valeurs courantes des commandes d'un équipement
+ *   - sendAction            : exécution d'une commande action sur un équipement
+ *   - getAuthUrl            : génère l'URL OAuth Nintendo (étape 1 de l'assistant token)
+ *   - exchangeAndSaveToken  : (F-002) échange OAuth + sauvegarde immédiate — token reste serveur
+ *   - saveTokenAndDevices   : sauvegarde token + crée équipements (conservé pour compatibilité)
+ *   - exchangeToken         : [DÉPRÉCIÉE] retournait le token au navigateur JS — ne plus exposer
  */
+
+/**
+ * (F-002) Fonction utilitaire : créer/mettre à jour les équipements Jeedom depuis un token.
+ * Utilisée par exchangeAndSaveToken ET saveTokenAndDevices pour éviter la duplication.
+ *
+ * @param string $token       Token de session Nintendo
+ * @param array  $devices     Liste [{id, name}] des consoles détectées
+ * @param int    $currentEqId ID de l'équipement Jeedom courant (créé vide par l'UI)
+ * @return array              Noms des équipements nouvellement créés
+ */
+function _jeeninswi_persist_devices(string $token, array $devices, int $currentEqId): array {
+    $firstDeviceDone = false;
+    $created         = [];
+
+    $currentEq = null;
+    if ($currentEqId > 0) {
+        $eq = eqLogic::byId($currentEqId);
+        if (is_object($eq) && $eq->getEqType_name() === 'jeeninswi') {
+            $currentEq = $eq;
+        }
+    }
+
+    foreach ($devices as $device) {
+        $deviceId = $device['id'] ?? '';
+        $name     = $device['name'] ?? ('Console ' . $deviceId);
+
+        if (empty($deviceId) || !preg_match('/^[a-f0-9]{16}$/i', $deviceId)) {
+            log::add('jeeninswi', 'warning', '[persist_devices] device_id invalide ignoré : "' . $deviceId . '"');
+            continue;
+        }
+
+        $name = substr(strip_tags($name), 0, 64);
+        if (empty($name)) {
+            $name = 'Console ' . strtoupper(substr($deviceId, 0, 8));
+        }
+
+        $existing = eqLogic::byTypeAndSearchConfiguration('jeeninswi', ['device_id' => $deviceId]);
+
+        if (!empty($existing)) {
+            foreach ($existing as $eq) {
+                log::add('jeeninswi', 'debug', '[persist_devices] device=' . $deviceId . ' existant #' . $eq->getId() . ' → token mis à jour');
+                $eq->setConfiguration('nintendo_token', $token);
+                $eq->save();
+            }
+            if (!$firstDeviceDone && $currentEq !== null) {
+                foreach ($existing as $eq) {
+                    if ($eq->getId() == $currentEqId) { $firstDeviceDone = true; break; }
+                }
+            }
+            continue;
+        }
+
+        if (!$firstDeviceDone && $currentEq !== null) {
+            log::add('jeeninswi', 'debug', '[persist_devices] première console "' . $name . '" → équipement courant #' . $currentEqId);
+            $currentEq->setName($name);
+            $currentEq->setIsEnable(1);
+            $currentEq->setIsVisible(1);
+            $currentEq->setCategory('multimedia', 1);
+            $currentEq->setConfiguration('device_id', $deviceId);
+            $currentEq->setConfiguration('nintendo_token', $token);
+            $currentEq->save();
+            $currentEq->postSave();
+            $firstDeviceDone = true;
+            continue;
+        }
+
+        log::add('jeeninswi', 'debug', '[persist_devices] création équipement "' . $name . '" (device_id=' . $deviceId . ')');
+        $eqL = new jeeninswi();
+        $eqL->setName($name);
+        $eqL->setEqType_name('jeeninswi');
+        $eqL->setIsEnable(1);
+        $eqL->setIsVisible(1);
+        $eqL->setCategory('multimedia', 1);
+        $eqL->setConfiguration('device_id', $deviceId);
+        $eqL->setConfiguration('nintendo_token', $token);
+        $eqL->save();
+        $eqL->postSave();
+        $created[] = $name;
+    }
+
+    return $created;
+}
+
 try {
     require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
     include_file('core', 'authentification', 'php');
 
     // SECURITY: token CSRF validé en premier — toute action non listée lève une exception
-    ajax::init(['getDeviceStatus', 'sendAction', 'getAuthUrl', 'exchangeToken', 'saveTokenAndDevices']);
+    // (F-002) exchangeToken retiré de la whitelist : retournait le token Nintendo au navigateur
+    ajax::init(['getDeviceStatus', 'sendAction', 'getAuthUrl', 'exchangeAndSaveToken', 'saveTokenAndDevices']);
 
     if (!isConnect('admin')) {
         throw new Exception(__('401 - Accès non autorisé', __FILE__));
@@ -94,19 +179,19 @@ try {
         ajax::success(['auth_url' => $data['auth_url']]);
     }
 
-    // ── Assistant token — Étape 2 : échanger l'URL de redirection ──────────────
-    if (init('action') == 'exchangeToken') {
-        log::add('jeeninswi', 'debug', '[ajax] exchangeToken — échange du code OAuth');
+    // ── Assistant token — Étape 2+3 fusionnées : échange OAuth + sauvegarde immédiate ──
+    // (F-002) Le token Nintendo ne transite JAMAIS par le navigateur JS.
+    // Remplace les deux anciens appels séquentiels exchangeToken + saveTokenAndDevices.
+    if (init('action') == 'exchangeAndSaveToken') {
+        log::add('jeeninswi', 'debug', '[ajax] exchangeAndSaveToken — échange OAuth + création équipements');
         $redirectUrl = init('redirect_url');
+        $currentEqId = intval(init('eqLogic_id'));
 
         if (empty($redirectUrl)) {
             throw new Exception(__('URL de redirection manquante', __FILE__));
         }
-
-        // Sécurité : valider que l'URL de redirection correspond au scheme Nintendo attendu.
-        // Le scheme officiel est npf54789befb391a838://auth# (source : nxapi / client_id Nintendo)
         if (!preg_match('/^npf54789befb391a838:\/\/auth#/', $redirectUrl)) {
-            log::add('jeeninswi', 'warning', '[ajax] exchangeToken — URL de redirection invalide (scheme incorrect)');
+            log::add('jeeninswi', 'warning', '[ajax] exchangeAndSaveToken — scheme OAuth invalide');
             throw new Exception(__('URL de redirection invalide. Elle doit commencer par npf54789befb391a838://auth#', __FILE__));
         }
 
@@ -117,30 +202,48 @@ try {
                 . ' ' . escapeshellarg($helperPath)
                 . ' --action exchange_token'
                 . ' --redirect-url ' . escapeshellarg($redirectUrl)
-                . ' --state-file ' . escapeshellarg($tmpFile)
+                . ' --state-file '   . escapeshellarg($tmpFile)
                 . ' 2>&1';
-        log::add('jeeninswi', 'debug', '[ajax] exchangeToken — exécution auth_helper.py');
         $output = shell_exec($cmd);
         $data   = json_decode($output, true);
 
         if (!is_array($data) || !isset($data['token'])) {
-            log::add('jeeninswi', 'error', 'exchangeToken — sortie inattendue (longueur=' . strlen($output ?? '') . ')');
+            log::add('jeeninswi', 'error', 'exchangeAndSaveToken — sortie inattendue (longueur=' . strlen($output ?? '') . ')');
             throw new Exception(__('Échange de token échoué. Vérifiez l\'URL de redirection.', __FILE__));
         }
-        log::add('jeeninswi', 'debug', '[ajax] exchangeToken — token obtenu, ' . count($data['devices'] ?? []) . ' console(s) trouvée(s)');
+
+        $token   = $data['token'];   // reste côté serveur, jamais renvoyé au JS
+        $devices = $data['devices'] ?? [];
+        log::add('jeeninswi', 'debug', '[ajax] exchangeAndSaveToken — ' . count($devices) . ' console(s) détectée(s) — création en cours');
+
+        $created = _jeeninswi_persist_devices($token, $devices, $currentEqId);
+        log::add('jeeninswi', 'debug', '[ajax] exchangeAndSaveToken — terminé : ' . count($created) . ' créé(s)');
+
+        // (F-002) Retourner uniquement la liste des consoles — JAMAIS le token
         ajax::success([
-            'token'   => $data['token'],
-            'devices' => $data['devices'] ?? [],
+            'created' => $created,
+            'devices' => array_map(function ($d) {
+                return ['id' => $d['id'] ?? '', 'name' => $d['name'] ?? ''];
+            }, $devices),
         ]);
     }
 
-    // ── Assistant token — Étape 3 : sauvegarder et créer les équipements ──────
+    // ── [DÉPRÉCIÉE] exchangeToken — retournait le token au navigateur JS ────────
+    // Conservée dans le code mais RETIRÉE de la whitelist ajax::init() (F-002).
+    // Utiliser exchangeAndSaveToken à la place.
+    if (init('action') == 'exchangeToken') {
+        log::add('jeeninswi', 'warning', '[ajax] exchangeToken — action supprimée (410) appelée directement');
+        http_response_code(410); // 410 Gone : action définitivement retirée (F-002)
+        throw new Exception(__('410 - Action supprimée : le token Nintendo ne transite plus par le navigateur. Utilisez exchangeAndSaveToken.', __FILE__));
+    }
+
+    // ── Assistant token — Sauvegarde seule (compatibilité) ───────────────────
+    // Conservée pour les appels directs éventuels. Préférer exchangeAndSaveToken.
     if (init('action') == 'saveTokenAndDevices') {
         log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — sauvegarde token et création équipements');
-        $token            = init('session_token');   // Clé 'session_token' pour éviter toute confusion avec le token AJAX Jeedom
-        $devices          = json_decode(init('devices'), true);
-        $currentEqId      = intval(init('eqLogic_id'));
-        $firstDeviceDone  = false;
+        $token       = init('session_token');
+        $devices     = json_decode(init('devices'), true);
+        $currentEqId = intval(init('eqLogic_id'));
 
         if (empty($token)) {
             throw new Exception(__('Token Nintendo manquant', __FILE__));
@@ -149,89 +252,7 @@ try {
             throw new Exception(__('Liste de consoles invalide', __FILE__));
         }
 
-        // Vérifier que l'équipement courant existe et appartient bien au plugin
-        $currentEq = null;
-        if ($currentEqId > 0) {
-            $eq = eqLogic::byId($currentEqId);
-            if (is_object($eq) && $eq->getEqType_name() === 'jeeninswi') {
-                $currentEq = $eq;
-            }
-        }
-
-        log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — ' . count($devices) . ' console(s) à traiter, eqLogic_id=' . $currentEqId);
-        $created = [];
-
-        foreach ($devices as $device) {
-            $deviceId = $device['id'] ?? '';
-            $name     = $device['name'] ?? ('Console ' . $deviceId);
-
-            // Sécurité : valider le format du device_id (16 caractères hexadécimaux)
-            if (empty($deviceId) || !preg_match('/^[a-f0-9]{16}$/i', $deviceId)) {
-                log::add('jeeninswi', 'warning', '[ajax] saveTokenAndDevices — device_id invalide ignoré : "' . $deviceId . '"');
-                continue;
-            }
-
-            // Sécurité : sanitiser le nom (max 64 caractères, pas de balises HTML)
-            $name = substr(strip_tags($name), 0, 64);
-            if (empty($name)) {
-                $name = 'Console ' . strtoupper(substr($deviceId, 0, 8));
-            }
-
-            // Déduplication : chercher si un équipement existe déjà pour ce device_id
-            $existing = eqLogic::byTypeAndSearchConfiguration('jeeninswi', ['device_id' => $deviceId]);
-
-            if (!empty($existing)) {
-                // Équipement existant : mise à jour du token uniquement — le nom Jeedom est conservé
-                foreach ($existing as $eq) {
-                    log::add('jeeninswi', 'debug',
-                        '[ajax] saveTokenAndDevices — device_id=' . $deviceId
-                        . ' déjà présent (#' . $eq->getId() . ' "' . $eq->getName() . '") → token mis à jour'
-                    );
-                    $eq->setConfiguration('nintendo_token', $token);
-                    $eq->save();
-                }
-                // Si c'est la première console et qu'elle correspond à l'équipement courant, on le marque comme traité
-                if (!$firstDeviceDone && $currentEq !== null) {
-                    foreach ($existing as $eq) {
-                        if ($eq->getId() == $currentEqId) { $firstDeviceDone = true; break; }
-                    }
-                }
-                continue;
-            }
-
-            // Première console sélectionnée → renseigner l'équipement courant (déjà créé vide)
-            if (!$firstDeviceDone && $currentEq !== null) {
-                log::add('jeeninswi', 'debug',
-                    '[ajax] saveTokenAndDevices — première console "' . $name
-                    . '" → mise à jour équipement courant #' . $currentEqId
-                );
-                $currentEq->setName($name);
-                $currentEq->setIsEnable(1);
-                $currentEq->setIsVisible(1);
-                $currentEq->setCategory('multimedia', 1);
-                $currentEq->setConfiguration('device_id', $deviceId);
-                $currentEq->setConfiguration('nintendo_token', $token);
-                $currentEq->save();
-                $currentEq->postSave(); // Forcer la création des commandes (postSave non garanti sur update)
-                $firstDeviceDone = true;
-                continue;
-            }
-
-            // Consoles supplémentaires → créer un nouvel équipement
-            log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — création équipement "' . $name . '" (device_id=' . $deviceId . ')');
-            $eqLogic = new jeeninswi();
-            $eqLogic->setName($name);
-            $eqLogic->setEqType_name('jeeninswi');
-            $eqLogic->setIsEnable(1);
-            $eqLogic->setIsVisible(1);
-            $eqLogic->setCategory('multimedia', 1);
-            $eqLogic->setConfiguration('device_id', $deviceId);
-            $eqLogic->setConfiguration('nintendo_token', $token);
-            $eqLogic->save();
-            $eqLogic->postSave(); // Forcer la création des 19 commandes (info + action)
-            $created[] = $name;
-        }
-
+        $created = _jeeninswi_persist_devices($token, $devices, $currentEqId);
         log::add('jeeninswi', 'debug', '[ajax] saveTokenAndDevices — terminé : ' . count($created) . ' créé(s)');
         ajax::success(['created' => $created]);
     }

@@ -72,25 +72,10 @@ def generate_auth_data():
     return url, state, verifier
 
 
-def parse_redirect_url(redirect_url: str) -> tuple:
-    """
-    Extrait session_token_code et state depuis npf...://auth#session_token_code=xxx&state=yyy&...
-
-    Returns:
-        (session_token_code, state) — state peut être None si absent
-
-    Raises:
-        ValueError si le format est invalide ou le code manquant
-    """
-    if not redirect_url:
-        raise ValueError('URL de redirection vide')
+def parse_redirect_url(redirect_url: str) -> str:
+    """Extrait session_token_code depuis npf...://auth#session_token_code=xxx&..."""
     parsed = urlparse(redirect_url)
-    # Valider le scheme OAuth Nintendo attendu
-    if not parsed.scheme.startswith('npf'):
-        raise ValueError(f'Scheme OAuth invalide : {parsed.scheme!r} (attendu npf...)')
     fragment = parsed.fragment  # ex: session_token_code=xxx&state=yyy&...
-    if not fragment:
-        raise ValueError('Fragment absent de l\'URL de redirection (attendu #session_token_code=...)')
     params = {}
     for part in fragment.split('&'):
         if '=' in part:
@@ -99,8 +84,7 @@ def parse_redirect_url(redirect_url: str) -> tuple:
     code = params.get('session_token_code')
     if not code:
         raise ValueError('session_token_code introuvable dans l\'URL de redirection')
-    state = params.get('state')  # Retourné pour vérification CSRF
-    return code, state
+    return code
 
 
 async def exchange_session_token(session_token_code: str, verifier: str) -> str:
@@ -120,7 +104,8 @@ async def exchange_session_token(session_token_code: str, verifier: str) -> str:
             data = await resp.json(content_type=None)
             token = data.get('session_token')
             if not token:
-                raise Exception(f'session_token absent de la réponse : {data}')
+                # (F-005) Ne pas exposer le payload complet Nintendo dans le message d'erreur
+                raise Exception(f'session_token absent dans la réponse (clés reçues : {list(data.keys())})')
             return token
 
 
@@ -175,7 +160,7 @@ async def action_exchange_token(redirect_url: str, state_file: str):
                 'Relancez depuis l\'étape 1.'
             )
 
-        # Supprimer le fichier d'état après usage pour éviter la réutilisation
+        # Supprimer le fichier d'état AVANT l'échange (invalide le state même en cas d'erreur réseau)
         try:
             os.remove(state_file)
         except OSError:

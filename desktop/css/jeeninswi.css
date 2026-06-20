@@ -175,6 +175,24 @@
 .nsw .nsw-name { font-size: 13px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; transition: color .2s; }
 .nsw .nsw-name:hover { color: #8b9ec7; }
 
+/* ── Actions header : don (tasse café) + rafraîchir ──────────── */
+.nsw .nsw-actions { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Rafraîchir (style repris de l'ancien inline) */
+.nsw .nsw-refresh { cursor: pointer; color: #8b9ec7; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; transition: color .2s; }
+.nsw .nsw-refresh:hover { color: #f0f4ff; }
+
+/* Bouton don — tasse de café (Ko-fi) */
+.nsw .nsw-donate { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #f5a623; cursor: pointer; text-decoration: none; font-size: 14px; transition: color .2s, background .2s, transform .15s, border-color .2s; }
+.nsw .nsw-donate:hover { background: rgba(245,166,35,.16); border-color: rgba(245,166,35,.55); transform: translateY(-1px); text-decoration: none; }
+.nsw .nsw-donate:active { transform: scale(.92); }
+.nsw .nsw-donate i { display: inline-block; }
+
+/* Tooltip affiché au survol de la tasse (sous l'icône) */
+.nsw .nsw-tip { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: max-content; max-width: 190px; padding: 8px 10px; border-radius: 9px; background: #232c40; border: 1px solid rgba(245,166,35,.55); color: #eef2fb; font-size: 11px; font-weight: 600; line-height: 1.35; text-align: left; white-space: normal; box-shadow: 0 10px 28px rgba(0,0,0,.55); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+.nsw .nsw-tip::before { content: ""; position: absolute; bottom: 100%; right: 9px; border: 7px solid transparent; border-bottom-color: #232c40; }
+.nsw .nsw-donate:hover .nsw-tip, .nsw .nsw-donate:focus-visible .nsw-tip { opacity: 1; transform: translateY(0); }
+
 /* ── Bande temps restant ────────────────────────────────── */
 .nsw .nsw-band { background: #e60012; border-radius: 8px; text-align: center; padding: 6px; font-size: 14px; font-weight: 900; letter-spacing: .5px; margin-bottom: 10px; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
 
@@ -268,3 +286,46 @@
 .nsw .nsw-sync { margin-top: 6px; text-align: center; font-size: 7px; color: #475569; font-weight: 600; letter-spacing: .3px; opacity: .75; }
 
 @keyframes nsw-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Section Gestion : cartes à grandes icônes ──────────────── */
+.nsw-manage-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 10px 0 20px;
+}
+.nsw-manage-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    padding: 18px 10px;
+    border-radius: var(--ninswi-radius);
+    background: rgba(127, 127, 127, .08);
+    border: 1px solid rgba(127, 127, 127, .18);
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.nsw-manage-card:hover {
+    transform: translateY(-3px);
+    background: rgba(228, 0, 15, .08);
+    border-color: var(--ninswi-red);
+}
+.nsw-manage-ico {
+    font-size: 46px;
+    line-height: 1;
+    color: #8a8a8a;
+    transition: color .12s ease;
+}
+.nsw-manage-card:hover .nsw-manage-ico { color: var(--ninswi-red); }
+.nsw-manage-ico.nsw-ico-add  { color: #5cb85c; }
+.nsw-manage-card:hover .nsw-ico-add { color: #4cae4c; }
+.nsw-manage-ico.nsw-ico-don  { color: #d99a2b; }
+.nsw-manage-card:hover .nsw-ico-don { color: #d99a2b; }
+.nsw-manage-lbl {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: inherit;
+    text-align: center;
+}

@@ -3,9 +3,16 @@
 <!-- HEADER -->
 <div class="nsw-hdr">
   <a href="#eqLink#" class="nsw-name" style="color:inherit;text-decoration:none;cursor:pointer;" title="Configurer cet équipement">#device_name#</a>
-  <span id="nsw-refresh-#eqLogic_id#" title="Rafraîchir" style="cursor:pointer;color:#8b9ec7;font-size:14px;">
-    <i class="fas fa-sync-alt"></i>
-  </span>
+  <div class="nsw-actions">
+    <a class="nsw-donate" href="https://ko-fi.com/aldarande" target="_blank" rel="noopener noreferrer"
+       role="button" aria-label="Faire un don pour soutenir le plugin">
+      <i class="fas fa-coffee"></i>
+      <span class="nsw-tip" role="tooltip">Ce plugin est gratuit &amp; open-source.<br>S'il vous plaît, offrez-moi un café&nbsp;! ☕</span>
+    </a>
+    <span class="nsw-refresh" id="nsw-refresh-#eqLogic_id#" title="Rafraîchir" role="button" tabindex="0" aria-label="Rafraîchir les données">
+      <i class="fas fa-sync-alt"></i>
+    </span>
+  </div>
 </div>
 
 <!-- LIMITE DE TEMPS -->
@@ -63,7 +70,7 @@ try{(function(){
     if(!document.getElementById('nsw-css')){
       var lnk=document.createElement('link');
       lnk.id='nsw-css';lnk.rel='stylesheet';lnk.type='text/css';
-      lnk.href='plugins/jeeninswi/desktop/css/jeeninswi.css?v=20260503';
+      lnk.href='plugins/jeeninswi/desktop/css/jeeninswi.css?v=20260616';
       document.head.appendChild(lnk);
     }
   }

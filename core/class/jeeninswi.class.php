@@ -109,20 +109,34 @@ class jeeninswi extends eqLogic {
                 $poll_cron = $eq->getConfiguration('poll_cron', self::POLL_CRON) ?: $poll_cron;
             }
         }
-        $tokens_json = json_encode($token_devices_map);
         log::add(__CLASS__, 'debug', '[deamon_start] ' . count($token_devices_map) . ' compte(s) Nintendo — poll_cron=' . $poll_cron);
 
-        $pid_file     = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
-        $log_file     = log::getPathToLog(__CLASS__);
-        $socket_port  = self::getPort();
-        $api_key      = jeedom::getApiKey(__CLASS__);
-        $jeedom_port  = config::byKey('port', 'network', 80);
-        $jeedom_comp  = config::byKey('urlcomplement', 'network', '');
-        $callback_url = 'http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=' . urlencode($api_key);
+        // (P4) Plage nocturne : polling ralenti pendant cette tranche horaire (vide = désactivé)
+        $night_range = trim(config::byKey('night_range', __CLASS__, '23-7'));
 
-        log::add(__CLASS__, 'debug', '[deamon_start] Port=' . $socket_port . ', PID file=' . $pid_file);
-        // SECURITY: ne pas loguer la clé API en clair
-        log::add(__CLASS__, 'debug', '[deamon_start] Callback URL=http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php?apikey=****');
+        $pid_file    = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
+        $log_file    = log::getPathToLog(__CLASS__);
+        $socket_port = self::getPort();
+        $api_key     = jeedom::getApiKey(__CLASS__);
+        $jeedom_port = config::byKey('port', 'network', 80);
+        $jeedom_comp = config::byKey('urlcomplement', 'network', '');
+
+        // (F-001) Écrire tokens + clé API dans un fichier secrets (chmod 0600).
+        // Évite l'exposition via `ps aux` / /proc/<pid>/cmdline.
+        $secrets_file = jeedom::getTmpFolder(__CLASS__) . '/daemon.secrets.json';
+        $secrets_data = json_encode(
+            ['tokens' => $token_devices_map, 'apikey' => $api_key],
+            JSON_UNESCAPED_UNICODE
+        );
+        if (@file_put_contents($secrets_file, $secrets_data) === false) {
+            throw new Exception(__('Impossible d\'écrire le fichier secrets du démon. Vérifiez les permissions sur ' . jeedom::getTmpFolder(__CLASS__), __FILE__));
+        }
+        @chmod($secrets_file, 0600);
+
+        // (F-003) URL callback sans ?apikey= en query string — clé transmise via header X-Api-Key
+        $callback_url = 'http://127.0.0.1:' . $jeedom_port . $jeedom_comp . '/plugins/jeeninswi/core/php/callback.php';
+
+        log::add(__CLASS__, 'debug', '[deamon_start] Port=' . $socket_port . ' | secrets=' . $secrets_file . ' | callback=' . $callback_url);
 
         // Utiliser le Python du venv si disponible, sinon python3 système (fallback)
         $venv_python = dirname(__FILE__) . '/../../resources/venv/bin/python3';
@@ -131,42 +145,56 @@ class jeeninswi extends eqLogic {
 
         // Vérification précoce : le binaire Python doit exister et être exécutable
         if ($venv_python === $python_bin && (!file_exists($python_bin) || !is_executable($python_bin))) {
+            @unlink($secrets_file);
             log::add(__CLASS__, 'error', '[deamon_start] Venv Python introuvable : ' . $python_bin);
-            throw new Exception(__('Le venv Python est introuvable. Relancez "Installer les dépendances" depuis la configuration du plugin.', __FILE__));
+            throw new Exception(__('Le venv Python est introuvable. Relancez "Installer les dépendances".', __FILE__));
         }
 
         $cmd  = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py');
-        $cmd .= ' --tokens '    . escapeshellarg($tokens_json);
-        $cmd .= ' --port '      . $socket_port;
-        $cmd .= ' --callback '  . escapeshellarg($callback_url);
-        $cmd .= ' --poll-cron ' . escapeshellarg($poll_cron);
-        $cmd .= ' --pid-file '  . escapeshellarg($pid_file);
-        $cmd .= ' --log-file '  . escapeshellarg($log_file);
+        $cmd .= ' --secrets-file ' . escapeshellarg($secrets_file); // (F-001) remplace --tokens
+        $cmd .= ' --port '         . $socket_port;
+        $cmd .= ' --callback '     . escapeshellarg($callback_url);
+        $cmd .= ' --poll-cron '    . escapeshellarg($poll_cron);
+        $cmd .= ' --pid-file '     . escapeshellarg($pid_file);
+        $cmd .= ' --log-file '     . escapeshellarg($log_file);
+        if ($night_range !== '') {
+            $cmd .= ' --night-range ' . escapeshellarg($night_range); // (P4) non sensible
+        }
         $cmd .= $_debug ? ' --debug' : '';
         $cmd .= ' > /dev/null 2>&1 &';
 
-        // SECURITY: construire une version masquée pour les logs (tokens Nintendo et clé API retirés)
+        // Log sans secrets (chemin du fichier visible, contenu protégé)
         $cmd_log = escapeshellarg($python_bin) . ' ' . escapeshellarg(dirname(__FILE__) . '/../../resources/jeeninswid/jeeninswid.py')
-                 . ' --tokens [MASKED]'
-                 . ' --port '      . $socket_port
-                 . ' --callback [MASKED]'
-                 . ' --poll-cron ' . escapeshellarg($poll_cron)
-                 . ' --pid-file '  . escapeshellarg($pid_file)
-                 . ' --log-file '  . escapeshellarg($log_file)
+                 . ' --secrets-file ' . escapeshellarg($secrets_file)
+                 . ' --port '         . $socket_port
+                 . ' --callback '     . escapeshellarg($callback_url)
+                 . ' --poll-cron '    . escapeshellarg($poll_cron)
+                 . ' --pid-file '     . escapeshellarg($pid_file)
+                 . ' --log-file '     . escapeshellarg($log_file)
+                 . ($night_range !== '' ? ' --night-range ' . escapeshellarg($night_range) : '')
                  . ($_debug ? ' --debug' : '');
         log::add(__CLASS__, 'info', 'Démarrage démon : ' . $cmd_log);
-        shell_exec($cmd);
 
-        $timeout = 60;
-        for ($i = 0; $i < $timeout; $i++) {
-            sleep(1);
-            log::add(__CLASS__, 'debug', '[deamon_start] Attente démon (' . ($i + 1) . '/' . $timeout . 's)...');
-            if (self::deamon_info()['state'] === 'ok') {
-                log::add(__CLASS__, 'debug', '[deamon_start] Démon actif après ' . ($i + 1) . 's');
-                return true;
+        // (F-001) finally garantit la suppression du fichier secrets même en cas d'exception
+        try {
+            shell_exec($cmd);
+            $timeout = 60;
+            for ($i = 0; $i < $timeout; $i++) {
+                sleep(1);
+                log::add(__CLASS__, 'debug', '[deamon_start] Attente démon (' . ($i + 1) . '/' . $timeout . 's)...');
+                if (self::deamon_info()['state'] === 'ok') {
+                    log::add(__CLASS__, 'debug', '[deamon_start] Démon actif après ' . ($i + 1) . 's');
+                    return true;
+                }
+            }
+            throw new Exception(__('Impossible de démarrer le démon. Vérifiez les logs.', __FILE__));
+        } finally {
+            // Le démon a normalement lu et supprimé le fichier ; on nettoie si ce n'est pas le cas
+            if (file_exists($secrets_file)) {
+                @unlink($secrets_file);
+                log::add(__CLASS__, 'debug', '[deamon_start] Fichier secrets supprimé (cleanup finally)');
             }
         }
-        throw new Exception(__('Impossible de démarrer le démon. Vérifiez les logs.', __FILE__));
     }
 
     public static function deamon_stop() {
@@ -189,6 +217,92 @@ class jeeninswi extends eqLogic {
 
     /*
      * ==========================================
+     * BONUS DE TEMPS PROGRAMMÉ (P3)
+     * ==========================================
+     */
+
+    /**
+     * Enregistre un bonus de temps à appliquer à une date future.
+     * Stocké dans la config plugin 'scheduled_bonuses' ; appliqué par cronDaily().
+     *
+     * @param string $deviceId Console cible
+     * @param int    $minutes  Minutes de bonus
+     * @param string $date     Date d'application au format YYYY-MM-DD
+     * @return array  {status, message}
+     */
+    public static function scheduleBonus($deviceId, $minutes, $date) {
+        $minutes = intval($minutes);
+        // Validation stricte de la date (format + date réelle)
+        $d = DateTime::createFromFormat('Y-m-d', $date);
+        if (!$d || $d->format('Y-m-d') !== $date) {
+            throw new Exception(__('Date de bonus invalide (format attendu : AAAA-MM-JJ)', __FILE__));
+        }
+        if (empty($deviceId)) {
+            throw new Exception(__('device_id manquant pour le bonus programmé', __FILE__));
+        }
+        if ($minutes < 1 || $minutes > 480) {
+            throw new Exception(__('Bonus hors limite (1-480 min)', __FILE__));
+        }
+
+        $list = json_decode(config::byKey('scheduled_bonuses', __CLASS__, '[]'), true);
+        if (!is_array($list)) {
+            $list = [];
+        }
+        $list[] = ['device_id' => $deviceId, 'minutes' => $minutes, 'date' => $date];
+        config::save('scheduled_bonuses', json_encode($list), __CLASS__);
+        log::add(__CLASS__, 'info', '[scheduleBonus] Bonus de ' . $minutes . ' min programmé le ' . $date . ' pour device ' . $deviceId);
+        return ['status' => 'ok', 'message' => 'Bonus programmé le ' . $date];
+    }
+
+    /**
+     * Cron quotidien Jeedom : applique les bonus programmés dont la date est
+     * aujourd'hui (ou passée), puis les retire de la liste.
+     * Réutilise l'action add_bonus_time du démon (pas de modification démon).
+     */
+    public static function cronDaily() {
+        $list = json_decode(config::byKey('scheduled_bonuses', __CLASS__, '[]'), true);
+        if (!is_array($list) || empty($list)) {
+            return;
+        }
+        $today     = date('Y-m-d');
+        $remaining = [];
+        $applied   = 0;
+
+        foreach ($list as $bonus) {
+            $date     = $bonus['date'] ?? '';
+            $deviceId = $bonus['device_id'] ?? '';
+            $minutes  = intval($bonus['minutes'] ?? 0);
+
+            // On garde les bonus futurs ; on applique ceux d'aujourd'hui ou en retard
+            if ($date === '' || $date > $today) {
+                $remaining[] = $bonus;
+                continue;
+            }
+
+            $eqLogics = eqLogic::byTypeAndSearchConfiguration(__CLASS__, ['device_id' => $deviceId]);
+            if (empty($eqLogics)) {
+                log::add(__CLASS__, 'warning', '[cronDaily] Bonus ignoré — aucun équipement pour device ' . $deviceId);
+                continue; // équipement supprimé → on abandonne ce bonus
+            }
+            foreach ($eqLogics as $eqLogic) {
+                try {
+                    $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => $minutes]);
+                    $applied++;
+                    log::add(__CLASS__, 'info', '[cronDaily] Bonus de ' . $minutes . ' min appliqué (device ' . $deviceId . ', programmé le ' . $date . ')');
+                } catch (Exception $e) {
+                    // Échec (démon arrêté ?) → on reporte le bonus au prochain passage
+                    log::add(__CLASS__, 'warning', '[cronDaily] Échec application bonus device ' . $deviceId . ' : ' . $e->getMessage() . ' — reporté');
+                    $remaining[] = $bonus;
+                }
+            }
+        }
+
+        config::save('scheduled_bonuses', json_encode(array_values($remaining)), __CLASS__);
+        log::add(__CLASS__, 'debug', '[cronDaily] ' . $applied . ' bonus appliqué(s), ' . count($remaining) . ' en attente');
+    }
+
+    /*
+     * ==========================================
      * CALLBACK — reçoit les données du démon
      * ==========================================
      */
@@ -198,10 +312,10 @@ class jeeninswi extends eqLogic {
             log::add(__CLASS__, 'warning', 'Callback sans device_id');
             return;
         }
-        log::add(__CLASS__, 'debug', '[callback] device_id=' . htmlspecialchars($_data['device_id'], ENT_QUOTES)
-            . ' | nickname=' . htmlspecialchars($_data['nickname'] ?? '?', ENT_QUOTES)
-            . ' | playtime_today=' . intval($_data['playtime_today'] ?? 0)
-            . ' | time_remaining=' . intval($_data['time_remaining'] ?? -1)
+        log::add(__CLASS__, 'debug', '[callback] device_id=' . $_data['device_id']
+            . ' | nickname=' . ($_data['nickname'] ?? '?')
+            . ' | playtime_today=' . ($_data['playtime_today'] ?? '?')
+            . ' | time_remaining=' . ($_data['time_remaining'] ?? '?')
             . ' | suspended=' . (isset($_data['suspended']) ? ($_data['suspended'] ? 'true' : 'false') : '?'));
 
         // Trouver l'équipement correspondant (JSON_CONTAINS)
@@ -253,8 +367,17 @@ class jeeninswi extends eqLogic {
             $this->checkAndUpdateCmd('temps_semaine', intval($_data['playtime_month']));
         }
         if (isset($_data['time_remaining'])) {
-            log::add(__CLASS__, 'debug', '[updateFromData] temps_restant → ' . intval($_data['time_remaining']) . ' min');
-            $this->checkAndUpdateCmd('temps_restant', intval($_data['time_remaining']));
+            $remaining = intval($_data['time_remaining']);
+            log::add(__CLASS__, 'debug', '[updateFromData] temps_restant → ' . $remaining . ' min');
+            $this->checkAndUpdateCmd('temps_restant', $remaining);
+
+            // Seuil d'alerte : 1 si le temps restant passe sous le seuil configuré.
+            // remaining = -1 signifie "pas de quota" → jamais d'alerte.
+            // threshold = 0 désactive la fonctionnalité.
+            $threshold = intval($this->getConfiguration('alert_threshold_minutes', 15));
+            $alert = ($threshold > 0 && $remaining >= 0 && $remaining <= $threshold) ? 1 : 0;
+            log::add(__CLASS__, 'debug', '[updateFromData] seuil_alerte_atteint → ' . $alert . ' (seuil=' . $threshold . ' min)');
+            $this->checkAndUpdateCmd('seuil_alerte_atteint', $alert);
         }
         if (isset($_data['daily_limit'])) {
             log::add(__CLASS__, 'debug', '[updateFromData] temps_limite → ' . intval($_data['daily_limit']) . ' min');
@@ -365,9 +488,13 @@ class jeeninswi extends eqLogic {
             throw new Exception(__('Impossible de contacter le démon. Vérifiez qu\'il est démarré.', __FILE__));
         }
         $decoded = json_decode($result, true);
-        log::add(__CLASS__, 'debug', '[sendToDaemon] Réponse démon : ' . $result);
+        // (F-004) Logger uniquement les clés + status — jamais les valeurs brutes (données Nintendo)
+        $safe_log = is_array($decoded)
+            ? 'keys=[' . implode(',', array_keys($decoded)) . '] status=' . ($decoded['status'] ?? '?')
+            : 'réponse non-JSON';
+        log::add(__CLASS__, 'debug', '[sendToDaemon] Réponse démon : ' . $safe_log);
         if (!is_array($decoded)) {
-            log::add(__CLASS__, 'error', '[sendToDaemon] Réponse démon invalide (non-JSON) : ' . substr($result, 0, 200));
+            log::add(__CLASS__, 'error', '[sendToDaemon] Réponse invalide (non-JSON) : ' . substr($result, 0, 200));
             throw new Exception(__('Réponse du démon invalide — vérifiez que le démon est démarré et actif.', __FILE__));
         }
         if (isset($decoded['error'])) {
@@ -404,7 +531,12 @@ class jeeninswi extends eqLogic {
             ['temps_depasse',     'Temps dépassé (jour)','numeric', 'time'],
             ['nb_jours_joue',     'Jours joués (mois)',  'numeric', 'time'],
             ['temps_moyen',       'Temps moyen (mois)',  'numeric', 'time'],
+            ['seuil_alerte_atteint', 'Seuil d\'alerte atteint', 'binary', 'bell'],
         ];
+
+        // Commandes numériques historisées par défaut À LA CRÉATION uniquement
+        // (idempotent : on ne touche jamais au réglage d'une commande existante)
+        $historized_cmds = ['temps_jour'];
 
         $order = 1;
         foreach ($info_cmds as $cmd_def) {
@@ -420,6 +552,9 @@ class jeeninswi extends eqLogic {
                 $cmd->setName($name);
                 $cmd->setIsVisible(1);
                 $cmd->setOrder($order);
+                if (in_array($logicalId, $historized_cmds, true)) {
+                    $cmd->setIsHistorized(1);
+                }
                 $cmd->save();
             } else {
                 log::add(__CLASS__, 'debug', '[postSave] Commande INFO existante : ' . $logicalId);
@@ -462,7 +597,7 @@ class jeeninswi extends eqLogic {
                     $cmd->setConfiguration('minValue', 0);
                     $cmd->setConfiguration('maxValue', 360);
                 }
-                if (in_array($logicalId, ['ajouter_temps', 'soustraire_temps'])) {
+                if (in_array($logicalId, ['bonus_special', 'ajouter_temps', 'soustraire_temps'])) {
                     $cmd->setConfiguration('minValue', 1);
                     $cmd->setConfiguration('maxValue', 120);
                 }
@@ -499,8 +634,6 @@ class jeeninswi extends eqLogic {
         $replace['#jeu_js#']         = json_encode($this->getCmd('info', 'jeu_en_cours')      ? $this->getCmd('info', 'jeu_en_cours')->execCmd()      : '');
         $replace['#jeu_img_js#']     = json_encode($this->getCmd('info', 'jeu_en_cours_image')? $this->getCmd('info', 'jeu_en_cours_image')->execCmd(): '');
         $replace['#gamechat_actif#'] = intval($this->getCmd('info', 'gamechat_actif') ? $this->getCmd('info', 'gamechat_actif')->execCmd() : 0);
-        // avatar_url non exposé par pynintendoparental — nécessaire pour le widget mobile
-        $replace['#avatar_url_js#']  = json_encode('');
 
         // Historique jeux (JSON — mois précédent)
         $rawHisto  = $this->getCmd('info', 'historique_jeux') ? $this->getCmd('info', 'historique_jeux')->execCmd() : '[]';
@@ -532,23 +665,21 @@ class jeeninswi extends eqLogic {
 
         // Dernière synchronisation
         $cmdSync = $this->getCmd('info', 'derniere_synchro');
-        $replace['#derniere_synchro#']  = $cmdSync ? htmlspecialchars($cmdSync->execCmd() ?? '—') : '—';
-        $replace['#cmd_synchro_id#']   = $cmdSync ? $cmdSync->getId() : '0';
+        $replace['#derniere_synchro#'] = $cmdSync ? htmlspecialchars($cmdSync->execCmd() ?? '—') : '—';
 
         // ID de l'équipement — indispensable pour les getElementById() du template JS
         $replace['#eqLogic_id#'] = $this->getId();
 
-        // IDs commandes actions pour les boutons du widget
+        // IDs commandes actions pour les boutons du widget dashboard
         $cmdIds = [
-            'rafraichir'       => 'cmd_refresh_id',
-            'ajouter_temps_15' => 'cmd_add15_id',
-            'ajouter_temps_30' => 'cmd_add30_id',
-            'ajouter_temps_60' => 'cmd_add60_id',
+            'rafraichir'         => 'cmd_refresh_id',
+            'ajouter_temps_15'   => 'cmd_add15_id',
+            'ajouter_temps_30'   => 'cmd_add30_id',
+            'ajouter_temps_60'   => 'cmd_add60_id',
             'bloquer_maintenant' => 'cmd_bloquer_id',
             'lever_restriction'  => 'cmd_lever_id',
             'mode_alerte'        => 'cmd_mode_alerte_id',
-            'mode_blocage'     => 'cmd_mode_blocage_id',
-            'definir_limite'   => 'cmd_limite_id',
+            'mode_blocage'       => 'cmd_mode_blocage_id',
         ];
         foreach ($cmdIds as $logicalId => $key) {
             $cmd = $this->getCmd('action', $logicalId);
@@ -576,11 +707,13 @@ class jeeninswiCmd extends cmd {
                 return $eqLogic->sendToDaemon('suspend', ['suspended' => false]);
 
             case 'ajouter_temps_15':
+                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 15]);
+
             case 'ajouter_temps_30':
+                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 30]);
+
             case 'ajouter_temps_60':
-                // Extraire le nombre de minutes depuis le logicalId (ex: 'ajouter_temps_30' → 30)
-                preg_match('/(\d+)$/', $this->getLogicalId(), $_m);
-                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => intval($_m[1] ?? 15)]);
+                return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => 60]);
 
             case 'definir_limite':
                 $minutes = intval($_options['slider'] ?? 120);
@@ -589,6 +722,12 @@ class jeeninswiCmd extends cmd {
             case 'ajouter_temps':
             case 'bonus_special':
                 $minutes = intval($_options['slider'] ?? 30);
+                // Bonus programmé : si une date (YYYY-MM-DD) est fournie dans les options,
+                // on n'applique pas tout de suite — on enregistre pour le cron quotidien.
+                $date = trim($_options['date'] ?? '');
+                if ($date !== '') {
+                    return jeeninswi::scheduleBonus($eqLogic->getConfiguration('device_id'), $minutes, $date);
+                }
                 return $eqLogic->sendToDaemon('add_bonus_time', ['minutes' => $minutes]);
 
             case 'soustraire_temps':

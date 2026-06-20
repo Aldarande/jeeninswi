@@ -103,6 +103,8 @@ class JeeNinSwiDaemon:
     pour éviter les conflits (limite de débit côté Nintendo).
     """
 
+    NIGHT_POLL_FACTOR = 6  # (P4) multiplicateur d'intervalle pendant la plage nocturne
+
     def __init__(self, args):
         self.port          = args.port
         self.callback_url  = args.callback
@@ -111,6 +113,9 @@ class JeeNinSwiDaemon:
         self.pid_file      = args.pid_file
         self.log           = setup_logging(args.log_file, args.debug)
         self.running       = True
+
+        # (P4) Plage nocturne "HHdebut-HHfin" (ex: "23-7") — polling ralenti ×6
+        self.night_start, self.night_end = self._parse_night_range(getattr(args, 'night_range', ''))
 
         # ── Structures multi-comptes ────────────────────────────────────────
         # apis : token → instance NintendoParental (l'API pour ce compte)
@@ -126,16 +131,29 @@ class JeeNinSwiDaemon:
         # Initialisée dans run() pour être dans la même boucle asyncio
         self.http_session        = None
 
-        # Pré-remplir token_devices depuis l'argument --tokens (mapping token → [device_ids])
-        try:
-            tokens_map = json.loads(args.tokens) if args.tokens else {}
-            for token, device_ids in tokens_map.items():
-                if token:
-                    self.token_devices[token] = set(device_ids)
-                    self.log.debug(f'[init] Token …{token[-6:]} pré-enregistré avec {len(device_ids)} device(s): {device_ids}')
-            self.log.info(f'[init] {len(self.token_devices)} compte(s) Nintendo pré-chargé(s) au démarrage')
-        except Exception as e:
-            self.log.error(f'[init] Erreur parsing --tokens: {e}')
+        # ── (F-001 + F-003) Charger secrets depuis fichier sécurisé ─────────
+        # Le fichier contient tokens + clé API Jeedom.
+        # Il est créé par PHP (chmod 0600) et supprimé immédiatement ici.
+        # Évite l'exposition des tokens dans `ps aux` / /proc/<pid>/cmdline.
+        self._callback_apikey = ''
+        tokens_map: dict = {}
+
+        if getattr(args, 'secrets_file', '') and os.path.exists(args.secrets_file):
+            try:
+                with open(args.secrets_file, 'r') as _sf:
+                    _secrets = json.load(_sf)
+                tokens_map            = _secrets.get('tokens', {})
+                self._callback_apikey = _secrets.get('apikey', '')
+                os.unlink(args.secrets_file)   # (F-001) Supprimer immédiatement après lecture
+                self.log.debug(f'[init] Fichier secrets lu et supprimé')
+            except Exception as _e:
+                self.log.error(f'[init] Erreur lecture fichier secrets: {_e}')
+
+        for _tok, _dids in tokens_map.items():
+            if _tok:
+                self.token_devices[_tok] = set(_dids)
+                self.log.debug(f'[init] Token …{_tok[-6:]} pré-enregistré avec {len(_dids)} device(s)')
+        self.log.info(f'[init] {len(self.token_devices)} compte(s) Nintendo pré-chargé(s) au démarrage')
 
         # ── Écrire le PID pour que Jeedom puisse surveiller le processus ────
         with open(self.pid_file, 'w') as f:
@@ -173,6 +191,60 @@ class JeeNinSwiDaemon:
             pass
         return 300  # Défaut : 5 minutes
 
+    @staticmethod
+    def _parse_night_range(value: str):
+        """
+        (P4) Parse "HHdebut-HHfin" (ex: "23-7") → (23, 7).
+        Retourne (None, None) si vide ou invalide (plage désactivée).
+        """
+        if not value or '-' not in value:
+            return None, None
+        try:
+            start_s, end_s = value.split('-', 1)
+            start, end = int(start_s), int(end_s)
+            if 0 <= start <= 23 and 0 <= end <= 23 and start != end:
+                return start, end
+        except (ValueError, TypeError):
+            pass
+        return None, None
+
+    def _is_night(self) -> bool:
+        """(P4) True si l'heure courante est dans la plage nocturne configurée."""
+        if self.night_start is None:
+            return False
+        h = datetime.now().hour
+        if self.night_start < self.night_end:
+            # Plage sur la même journée (ex: 1-6)
+            return self.night_start <= h < self.night_end
+        # Plage à cheval sur minuit (ex: 23-7)
+        return h >= self.night_start or h < self.night_end
+
+    def _current_poll_interval(self) -> int:
+        """(P4) Intervalle de polling effectif : ×NIGHT_POLL_FACTOR la nuit."""
+        if self._is_night():
+            return self.poll_interval * self.NIGHT_POLL_FACTOR
+        return self.poll_interval
+
+    def _evict_old_images(self, max_age_days: int = 30):
+        """(P4) Supprime les images du cache plus vieilles que max_age_days."""
+        if not os.path.isdir(IMG_CACHE_DIR):
+            return
+        cutoff = time.time() - max_age_days * 86400
+        removed = 0
+        try:
+            for fname in os.listdir(IMG_CACHE_DIR):
+                fpath = os.path.join(IMG_CACHE_DIR, fname)
+                try:
+                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                        os.unlink(fpath)
+                        removed += 1
+                except OSError:
+                    continue
+        except OSError as e:
+            self.log.debug(f'[cache] Éviction impossible : {e}')
+            return
+        self.log.debug(f'[cache] Éviction : {removed} image(s) > {max_age_days}j supprimée(s)')
+
     def _handle_signal(self, signum, frame):
         """Gestionnaire de signal SIGTERM/SIGINT — arrêt propre du démon."""
         self.log.info(f'Signal {signum} reçu — arrêt du démon')
@@ -185,9 +257,11 @@ class JeeNinSwiDaemon:
         """
         Retourne le verrou asyncio pour ce token (créé si inexistant).
         Ce verrou garantit qu'un seul appel API est en cours par compte Nintendo.
-        Utilise setdefault() pour une création atomique (pas de race condition).
         """
-        return self.api_locks.setdefault(token, asyncio.Lock())
+        if token not in self.api_locks:
+            self.log.debug(f'[lock] Création verrou pour token …{token[-6:]}')
+            self.api_locks[token] = asyncio.Lock()
+        return self.api_locks[token]
 
     # ── Connexion à l'API Nintendo ───────────────────────────────────────────
 
@@ -288,33 +362,6 @@ class JeeNinSwiDaemon:
         async with self._get_lock(token):
             await self._do_fetch(token, api)
 
-    async def _call_with_retry(self, coro_factory, max_retries: int = 3, backoff_base: float = 2.0):
-        """
-        Exécute une coroutine avec retry + backoff exponentiel.
-        Utile pour les appels API Nintendo sujets aux erreurs réseau transitoires ou 429.
-
-        Args:
-            coro_factory: callable sans argument retournant une coroutine (lambda: api.update())
-            max_retries:  nombre maximum de tentatives
-            backoff_base: délai initial en secondes (doublé à chaque retry)
-        """
-        last_exc = None
-        for attempt in range(max_retries):
-            try:
-                return await coro_factory()
-            except (InvalidSessionTokenException, NoDevicesFoundException):
-                raise  # Ces exceptions ne doivent pas être retentées
-            except Exception as e:
-                last_exc = e
-                if attempt < max_retries - 1:
-                    wait = backoff_base * (2 ** attempt)
-                    self.log.warning(
-                        f'[retry] Tentative {attempt + 1}/{max_retries} échouée '
-                        f'({type(e).__name__}) — attente {wait:.0f}s avant retry'
-                    )
-                    await asyncio.sleep(wait)
-        raise last_exc
-
     async def _do_fetch(self, token: str, api):
         """
         Appelle api.update() et envoie les données vers Jeedom via callback.
@@ -328,7 +375,7 @@ class JeeNinSwiDaemon:
         )
         try:
             self.log.debug(f'[_do_fetch] api.update() en cours…')
-            await self._call_with_retry(lambda: api.update(), max_retries=3, backoff_base=2.0)
+            await api.update()
             devices = api.devices or {}
             self.log.debug(f'[_do_fetch] {len(devices)} device(s) retourné(s) par l\'API Nintendo')
 
@@ -896,12 +943,16 @@ class JeeNinSwiDaemon:
     async def _do_post_callback(self, session: aiohttp.ClientSession, data: dict):
         """Exécute le POST HTTP vers callback.php avec gestion des erreurs."""
         device_id = data.get('device_id', '?')
+        # (F-003) Clé API transmise via header X-Api-Key (plus de query string exposée)
+        _headers = {'Content-Type': 'application/json'}
+        if self._callback_apikey:
+            _headers['X-Api-Key'] = self._callback_apikey
         try:
             async with session.post(
                 self.callback_url,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=5),
-                headers={'Content-Type': 'application/json'},
+                headers=_headers,
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
@@ -1058,18 +1109,8 @@ class JeeNinSwiDaemon:
             self.log.warning(f'[http] Corps JSON invalide : {e}')
             return web.Response(status=400, text='JSON invalide')
 
-        # SECURITY: valider l'action contre une liste blanche avant tout log ou traitement
-        _ALLOWED_ACTIONS = {
-            'refresh', 'suspend', 'add_bonus_time', 'set_daily_limit',
-            'set_restriction_mode', 'subtract_time', 'signaler', 'set_gamechat',
-        }
-        action = payload.get('action', '')
-        if not isinstance(action, str) or action not in _ALLOWED_ACTIONS:
-            self.log.warning(f'[http] Action rejetée (non autorisée): {str(action)[:50]!r}')
-            return web.Response(status=400, content_type='application/json',
-                                body=json.dumps({'status': 'error', 'message': 'Action invalide'}).encode())
-
-        device_id = str(payload.get('device_id', '?'))[:64]
+        action    = payload.get('action', '?')
+        device_id = payload.get('device_id', '?')
         self.log.debug(f'[http] POST /action — action={action} | device={device_id}')
 
         result = await self.handle_action(payload)
@@ -1104,16 +1145,19 @@ class JeeNinSwiDaemon:
                 'Démon JeeNinSwi démarré — en attente des actions Jeedom sur le port %d',
                 self.port
             )
-            # SECURITY: masquer la clé API dans les logs
-            _safe_cb = (self.callback_url.split('apikey=')[0] + 'apikey=****') \
-                       if 'apikey=' in self.callback_url else self.callback_url
+            # (F-003) callback_url ne contient plus de ?apikey= — clé transmise via header
+            _night = (f'{self.night_start}h-{self.night_end}h' if self.night_start is not None else 'désactivée')
             self.log.debug(
                 f'[run] PID={os.getpid()} | poll_interval={self.poll_interval}s '
-                f'| poll_cron={self.poll_cron} | callback={_safe_cb}'
+                f'| poll_cron={self.poll_cron} | nuit={_night} | callback={self.callback_url}'
+                f' | apikey_header={"oui" if self._callback_apikey else "non"}'
             )
 
+            # (P4) Éviction du cache images au démarrage (fichiers > 30 jours)
+            self._evict_old_images(30)
+
             # ── Connexion initiale de tous les comptes pré-chargés ────────────
-            # Les tokens sont passés au démarrage via --tokens (PHP deamon_start).
+            # Les tokens sont chargés depuis le fichier secrets au démarrage.
             # Sans ça, le démon attendrait qu'une action soit envoyée pour se connecter.
             if self.token_devices:
                 self.log.info(f'[run] Connexion initiale de {len(self.token_devices)} compte(s) Nintendo...')
@@ -1130,18 +1174,21 @@ class JeeNinSwiDaemon:
                 )
 
             # ── Boucle de polling Nintendo ────────────────────────────────────
-            # Attend poll_interval secondes, puis poll tous les comptes connectés.
+            # (P4) L'intervalle est ralenti ×NIGHT_POLL_FACTOR pendant la plage nocturne.
             while self.running:
-                await asyncio.sleep(self.poll_interval)
+                interval = self._current_poll_interval()
+                await asyncio.sleep(interval)
                 if not self.running:
                     break
                 if self.apis:
-                    self.log.debug('Polling %d compte(s) Nintendo...', len(self.apis))
+                    self.log.debug('Polling %d compte(s) Nintendo (intervalle %ds%s)...',
+                                   len(self.apis), interval,
+                                   ' [nuit]' if self._is_night() else '')
                     await self.fetch_all_devices()
                 else:
                     self.log.info(
                         '[run] Aucun compte connecté — prochain poll dans %ds.',
-                        self.poll_interval
+                        interval
                     )
 
         # ── Nettoyage à l'arrêt ───────────────────────────────────────────────
@@ -1158,8 +1205,10 @@ def main():
         description='JeeNinSwi Daemon — Nintendo Switch Parental Controls pour Jeedom'
     )
     parser.add_argument(
-        '--tokens', default='{}',
-        help='JSON object {token: [device_ids]} des comptes Nintendo à superviser au démarrage'
+        '--secrets-file', default='',
+        dest='secrets_file',
+        help='(F-001) Fichier JSON sécurisé contenant tokens + apikey. '
+             'Supprimé immédiatement après lecture.'
     )
     parser.add_argument(
         '--port', type=int, default=55147,
@@ -1167,11 +1216,16 @@ def main():
     )
     parser.add_argument(
         '--callback', required=True,
-        help='URL callback Jeedom (core/php/callback.php?apikey=...)'
+        help='URL callback Jeedom (core/php/callback.php — clé API via header X-Api-Key)'
     )
     parser.add_argument(
         '--poll-cron', default='*/5 * * * *',
         help='Expression cron pour le polling Nintendo (ex: */5 * * * * = toutes les 5 min)'
+    )
+    parser.add_argument(
+        '--night-range', default='',
+        dest='night_range',
+        help='(P4) Plage nocturne HHdebut-HHfin (ex: 23-7) — polling ralenti x6. Vide = désactivé.'
     )
     parser.add_argument(
         '--pid-file', required=True,

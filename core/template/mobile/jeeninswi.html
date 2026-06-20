@@ -5,6 +5,13 @@
     #ninswi-#eqLogic_id# .nsw-m-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid #e4000f;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:18px;}
     #ninswi-#eqLogic_id# .nsw-m-name{font-weight:700;font-size:13px;}
     #ninswi-#eqLogic_id# .nsw-m-time{font-size:11px;color:#8b9ec7;margin-top:4px;}
+    #ninswi-#eqLogic_id# .nsw-m-actions{display:flex;gap:5px;margin-top:9px;}
+    #ninswi-#eqLogic_id# .nsw-m-btn{flex:1;border:none;border-radius:7px;padding:7px 4px;font-size:11px;font-weight:800;cursor:pointer;color:#fff;transition:filter .15s,transform .1s;}
+    #ninswi-#eqLogic_id# .nsw-m-btn:active{transform:scale(.94);}
+    #ninswi-#eqLogic_id# .nsw-m-btn:hover{filter:brightness(1.12);}
+    #ninswi-#eqLogic_id# .nsw-m-add{background:#16a34a;}
+    #ninswi-#eqLogic_id# .nsw-m-lock{background:#dc2626;flex:1.4;}
+    #ninswi-#eqLogic_id# .nsw-m-unlock{background:#475569;flex:1.4;}
   </style>
   <div class="nsw-m-row">
     <div class="nsw-m-avatar" id="nsw-m-av-#eqLogic_id#">🎮</div>
@@ -13,11 +20,61 @@
       <div class="nsw-m-time">#temps_jour_fmt# aujourd'hui</div>
     </div>
   </div>
+  <div class="nsw-m-actions" id="nsw-m-actions-#eqLogic_id#"></div>
   <script>
   (function(){
-    var av=document.getElementById('nsw-m-av-#eqLogic_id#');
+    var EQ='#eqLogic_id#';
+    if(!EQ||EQ.indexOf('#')!==-1)return;
+
+    /* Avatar */
+    var av=document.getElementById('nsw-m-av-'+EQ);
     var url=#avatar_url_js#;
     if(av&&url){var img=document.createElement('img');img.style.cssText='width:36px;height:36px;border-radius:50%;object-fit:cover;';img.src=url;av.innerHTML='';av.appendChild(img);}
+
+    /* Exécuteur de commande autonome (indépendant du widget dashboard) */
+    function run(id){
+      if(!id||id==='0')return;
+      jeedom.cmd.execute({id:id,options:{}});
+    }
+
+    var wrap=document.getElementById('nsw-m-actions-'+EQ);
+    if(!wrap)return;
+
+    /* Boutons + de temps */
+    var times=[
+      {id:'#cmd_add15_id#',lbl:'+15'},
+      {id:'#cmd_add30_id#',lbl:'+30'},
+      {id:'#cmd_add60_id#',lbl:'+1h'}
+    ];
+    times.forEach(function(t){
+      if(!t.id||t.id==='0')return;
+      var b=document.createElement('button');
+      b.className='nsw-m-btn nsw-m-add';
+      b.textContent=t.lbl;
+      b.onclick=function(){
+        run(t.id);
+        var o=b.textContent;b.textContent='✓';
+        setTimeout(function(){b.textContent=o;},1500);
+      };
+      wrap.appendChild(b);
+    });
+
+    /* Bouton Bloquer / Débloquer */
+    var bloquer='#cmd_bloquer_id#', lever='#cmd_lever_id#';
+    if((bloquer&&bloquer!=='0')||(lever&&lever!=='0')){
+      var bloquee=#bloquee#;
+      var lock=document.createElement('button');
+      function upd(){
+        lock.className='nsw-m-btn '+(bloquee?'nsw-m-unlock':'nsw-m-lock');
+        lock.textContent=bloquee?'🔓 Débloquer':'🔒 Bloquer';
+      }
+      upd();
+      lock.onclick=function(){
+        if(bloquee){run(lever);bloquee=0;}else{run(bloquer);bloquee=1;}
+        upd();
+      };
+      wrap.appendChild(lock);
+    }
   })();
   </script>
 </div>

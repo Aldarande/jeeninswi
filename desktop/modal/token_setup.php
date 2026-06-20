@@ -80,20 +80,15 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
                 </div>
             </div>
 
-            <!-- Étape 3 -->
+            <!-- Étape 3 — Confirmation (F-002: le token reste serveur, cette étape affiche le résultat) -->
             <div id="ninswi-step-3" class="ninswi-wizard-step" style="display:none;">
-                <span class="badge" style="background:#e4000f;color:#fff;font-size:16px;min-width:26px;padding:4px 7px;border-radius:50%;">3</span>
-                <strong style="margin-left:8px;font-size:16px;">{{Consoles detectees}}</strong>
+                <span class="badge" style="background:#28a745;color:#fff;font-size:16px;min-width:26px;padding:4px 7px;border-radius:50%;">3</span>
+                <strong style="margin-left:8px;font-size:16px;">{{Equipements configures}}</strong>
                 <br><br>
-                <div id="ninswi-devices-list">
-                    <div class="text-center">
-                        <i class="fas fa-spinner fa-spin fa-2x"></i>
-                        <p>{{Recuperation des consoles...}}</p>
-                    </div>
-                </div>
+                <div id="ninswi-confirm-list"></div>
                 <div class="text-right" style="margin-top:15px;">
-                    <button class="btn btn-success" id="ninswi-btn-save-config">
-                        <i class="fas fa-check"></i> {{Creer les equipements Jeedom}}
+                    <button class="btn btn-success" id="ninswi-btn-done">
+                        <i class="fas fa-check"></i> {{Terminer}}
                     </button>
                 </div>
             </div>
@@ -117,11 +112,10 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
     var MSG_NO_DEVICE     = <?php echo $js_msg_no_device; ?>;
     var SPINNER           = <?php echo $js_spinner; ?>;
 
-    var authUrl         = '';
-    var sessionToken    = '';
-    var detectedDevices = [];
-    var AJAX_URL        = 'plugins/jeeninswi/core/ajax/jeeninswi.ajax.php';
-    var CURRENT_EQ_ID   = <?php echo $current_eqLogic_id; ?>;
+    var authUrl      = '';
+    // (F-002) sessionToken supprimé : le token ne transite plus par le navigateur
+    var AJAX_URL     = 'plugins/jeeninswi/core/ajax/jeeninswi.ajax.php';
+    var CURRENT_EQ_ID = <?php echo $current_eqLogic_id; ?>;
 
     function showStep(n) {
         $('.ninswi-wizard-step').hide();
@@ -135,6 +129,18 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
     }
     function btnRestore($btn) {
         $btn.prop('disabled', false).html($btn.data('orig-html') || '');
+    }
+
+    function doRedirect() {
+        try { $('#md_modal').dialog('close'); } catch(e) {}
+        var vars = getUrlVars();
+        var url = 'index.php?';
+        for (var i in vars) {
+            if (i !== 'id' && i !== 'saveSuccessFull' && i !== 'removeSuccessFull') {
+                url += i + '=' + vars[i].replace('#', '') + '&';
+            }
+        }
+        jeedomUtils.loadPage(url);
     }
 
     // Etape 1 -> 2
@@ -178,7 +184,7 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
 
     $('#ninswi-btn-step2-back').on('click', function() { showStep(1); });
 
-    // Etape 2 -> 3
+    // (F-002) Etape 2 -> 3 : appel unique exchangeAndSaveToken — token reste côté serveur
     $('#ninswi-btn-step2-next').on('click', function() {
         var redirectUrl = $('#ninswi-redirect-url').val().trim();
         if (!redirectUrl) {
@@ -190,64 +196,9 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
         $.ajax({
             type: 'POST',
             url: AJAX_URL,
-            data: { action: 'exchangeToken', redirect_url: redirectUrl },
-            dataType: 'json',
-            success: function(data) {
-                btnRestore($btn);
-                if (data.state !== 'ok') {
-                    $('#div_alert').showAlert({ message: data.result, level: 'danger' });
-                    return;
-                }
-                sessionToken    = data.result.token;
-                detectedDevices = data.result.devices || [];
-                renderDevices(detectedDevices);
-                showStep(3);
-            },
-            error: function() {
-                btnRestore($btn);
-                $('#div_alert').showAlert({ message: MSG_ERR_COMM, level: 'danger' });
-            }
-        });
-    });
-
-    function renderDevices(devices) {
-        var $c = $('#ninswi-devices-list').empty();
-        if (!devices.length) {
-            $c.html('<div class="alert alert-warning">' + MSG_NO_DEVICE + '</div>');
-            return;
-        }
-        $.each(devices, function(i, device) {
-            var safeName = $('<span>').text(device.name || ('Console ' + (i + 1))).html();
-            var safeId   = $('<span>').text(device.id).html();
-            $c.append(
-                '<div class="panel panel-default" style="margin-bottom:8px;">' +
-                  '<div class="panel-body" style="display:flex;align-items:center;gap:12px;">' +
-                    '<input type="checkbox" class="ninswi-device-check" checked style="width:18px;height:18px;">' +
-                    '<i class="fas fa-gamepad fa-2x" style="color:#e4000f;"></i>' +
-                    '<div><strong>' + safeName + '</strong><br><small class="text-muted">' + safeId + '</small></div>' +
-                  '</div>' +
-                '</div>'
-            );
-        });
-    }
-
-    // Sauvegarder
-    $('#ninswi-btn-save-config').on('click', function() {
-        var selected = [];
-        $('#ninswi-devices-list .panel').each(function(i) {
-            if ($(this).find('.ninswi-device-check').is(':checked')) {
-                selected.push(detectedDevices[i]);
-            }
-        });
-        var $btn = $(this);
-        btnStart($btn);
-        $.ajax({
-            type: 'POST',
-            url: AJAX_URL,
             data: {
-                action: 'saveTokenAndDevices',
-                session_token: sessionToken,
-                devices: JSON.stringify(selected),
+                action: 'exchangeAndSaveToken',
+                redirect_url: redirectUrl,
                 eqLogic_id: CURRENT_EQ_ID
             },
             dataType: 'json',
@@ -257,26 +208,43 @@ $js_spinner       = json_encode('<i class="fas fa-spinner fa-spin"></i>');
                     $('#div_alert').showAlert({ message: data.result, level: 'danger' });
                     return;
                 }
-                $('#div_alert').showAlert({ message: MSG_SAVED, level: 'success' });
-                setTimeout(function() {
-                    try { $('#md_modal').dialog('close'); } catch(e) {}
-                    // Recharger la page plugin sans "id" pour que PHP régénère
-                    // la liste des équipements avec les consoles nouvellement créées
-                    var vars = getUrlVars();
-                    var url = 'index.php?';
-                    for (var i in vars) {
-                        if (i !== 'id' && i !== 'saveSuccessFull' && i !== 'removeSuccessFull') {
-                            url += i + '=' + vars[i].replace('#', '') + '&';
-                        }
-                    }
-                    jeedomUtils.loadPage(url);
-                }, 1200);
+                // (F-002) Le serveur retourne les consoles créées — jamais le token
+                renderConfirmation(data.result.devices || []);
+                showStep(3);
             },
             error: function() {
                 btnRestore($btn);
                 $('#div_alert').showAlert({ message: MSG_ERR_COMM, level: 'danger' });
             }
         });
+    });
+
+    // (F-002) Etape 3 : affichage de confirmation uniquement (plus de selection ni sauvegarde JS)
+    function renderConfirmation(devices) {
+        var $c = $('#ninswi-confirm-list').empty();
+        if (!devices || !devices.length) {
+            $c.html('<div class="alert alert-warning">' + MSG_NO_DEVICE + '</div>');
+            return;
+        }
+        var html = '<div class="alert alert-success"><i class="fas fa-check-circle"></i>&nbsp;'
+                 + devices.length + ' console(s) configurée(s) avec succès :</div>';
+        $.each(devices, function(i, device) {
+            var safeName = $('<span>').text(device.name || ('Console ' + (i + 1))).html();
+            var safeId   = $('<span>').text(device.id || '').html();
+            html += '<div class="panel panel-success" style="margin-bottom:8px;">'
+                  + '<div class="panel-body" style="display:flex;align-items:center;gap:12px;">'
+                  + '<i class="fas fa-check-circle fa-lg" style="color:#28a745;"></i>'
+                  + '<i class="fas fa-gamepad fa-lg" style="color:#e4000f;"></i>'
+                  + '<div><strong>' + safeName + '</strong>'
+                  + (safeId ? '<br><small class="text-muted">' + safeId + '</small>' : '')
+                  + '</div></div></div>';
+        });
+        $c.html(html);
+    }
+
+    $('#ninswi-btn-done').on('click', function() {
+        $('#div_alert').showAlert({ message: MSG_SAVED, level: 'success' });
+        setTimeout(doRedirect, 800);
     });
 
 })();
